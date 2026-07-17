@@ -62,6 +62,11 @@ spec:
             # the synced Secret holds a `claude setup-token` OAuth token,
             # not an API key
             secretEnv: CLAUDE_CODE_OAUTH_TOKEN
+          config:
+            # demo visibility across every controller (the binaries default
+            # to warn, which makes a healthy cluster look silent); revisit
+            # once the demo settles
+            logLevel: info
           agent:
             # terraform pre-creates patchy-agents; this component's
             # namespace.yaml carries the restricted Pod Security labels the
