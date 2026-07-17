@@ -1,8 +1,8 @@
 # flux-manifests
 
 The GitOps stack every patchy-platform GKE cluster syncs: one consistent `stack/` packaged as a **keyless-cosign-signed
-OCI artifact** in the platform Artifact Registry, consumed by each cluster's FluxInstance on a channel tag (`staging` or
-`stable`). Nothing is edited per cluster — all variation arrives through the `cluster-vars` ConfigMap the terraform
+OCI artifact** in the platform Artifact Registry, consumed by each cluster's FluxInstance on a channel tag (`edge`,
+`staging` or `stable`). Nothing is edited per cluster — all variation arrives through the `cluster-vars` ConfigMap the terraform
 module publishes.
 
 ## What the stack deploys
@@ -60,9 +60,12 @@ here): `external-dns/external-dns`, `cert-manager/cert-manager`, `otel-collector
 ## Releases and channels
 
 release-please cuts `vX.Y.Z` from Conventional Commits; **publish.yaml** pushes the signed artifact and moves `staging`;
-**promote.yaml** (workflow_dispatch, `production` environment) moves `stable` after soak. Clusters pin their channel in
-terraform (`flux.sync.ref`). The signing identity clusters verify is exactly
-`…/flux-manifests/.github/workflows/publish.yaml@refs/tags/v*`.
+**promote.yaml** (workflow_dispatch, `production` environment) moves `stable` after soak. **publish-edge.yaml**
+additionally pushes every merge to main as the `edge` channel — for dev/sandbox clusters that validate trunk
+continuously; the release channels only ever see release-tagged artifacts. Clusters pin their channel in terraform
+(`flux.sync.ref`). The signing identity clusters verify is exactly
+`…/flux-manifests/.github/workflows/publish.yaml@refs/tags/v*` for `staging`/`stable`, and
+`…/publish-edge.yaml@refs/heads/main` for `edge`.
 
 ## Validation
 
