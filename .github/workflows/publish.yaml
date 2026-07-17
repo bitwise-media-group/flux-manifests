@@ -75,7 +75,7 @@ jobs:
 
           # keyless: the Fulcio certificate subject is exactly this workflow at
           # this tag — what every cluster's FluxInstance verify patch matches
-          cosign sign --yes --tlog-upload=true --use-signing-config=false \
+          cosign sign --yes --use-signing-config=false \
             "${PLATFORM_REGISTRY}/flux-manifests@$digest"
 
           flux tag artifact "$url:$version" --tag staging
