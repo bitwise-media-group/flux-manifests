@@ -9,6 +9,11 @@
 # features — the registries are the stable contract. kube-system itself is
 # additionally excluded at the webhook level by the kyverno chart defaults.
 #
+# Patchy is the one exception to the single-identity model: its images come
+# straight from ghcr, goreleaser-signed by its own release workflow, so a
+# second scoped entry trusts that identity for patchy's images ONLY — every
+# image is still verified by exactly one entry.
+#
 # failureAction starts as Audit via the cluster var default: soak a fresh
 # cluster, audit the PolicyReports, then flip KYVERNO_FAILURE_ACTION=Enforce
 # in terraform's flux.cluster_vars — no manifests release needed.
@@ -34,6 +39,8 @@ spec:
             - "gke.gcr.io/*"
             - "gcr.io/gke-release/*"
             - "registry.k8s.io/*"
+            # verified by the dedicated patchy entry below
+            - "ghcr.io/bitwise-media-group/patchy/*"
           failureAction: "${KYVERNO_FAILURE_ACTION:=Audit}"
           required: true
           # Rewrite matched images to their digest before admission, so what
@@ -48,4 +55,20 @@ spec:
                     issuerRegExp: "${SIGNED_IDENTITY_ISSUER}"
                     rekor:
                       # public Rekor — the platform signs with tlog upload on
+                      url: https://rekor.sigstore.dev
+        - imageReferences:
+            - "ghcr.io/bitwise-media-group/patchy/*"
+          failureAction: "${KYVERNO_FAILURE_ACTION:=Audit}"
+          required: true
+          mutateDigest: true
+          verifyDigest: true
+          attestors:
+            - count: 1
+              entries:
+                - keyless:
+                    # default kept in sync with the OCIRepository verify in
+                    # components/patchy/resourceset.yaml
+                    subjectRegExp: '${SIGNED_IDENTITY_PATCHY:=^https://github\.com/bitwise-media-group/patchy/}'
+                    issuerRegExp: "${SIGNED_IDENTITY_ISSUER}"
+                    rekor:
                       url: https://rekor.sigstore.dev
