@@ -10,9 +10,15 @@
 # additionally excluded at the webhook level by the kyverno chart defaults.
 #
 # Patchy is the one exception to the single-identity model: its images come
-# straight from ghcr, goreleaser-signed by its own release workflow, so a
-# second scoped entry trusts that identity for patchy's images ONLY — every
-# image is still verified by exactly one entry.
+# straight from ghcr, signed by goreleaser inside the shared release
+# workflow, so a second scoped entry trusts that identity for patchy's
+# images ONLY — every image is still verified by exactly one entry. Two
+# subtleties on that entry: the Fulcio identity is the REUSABLE workflow's
+# job_workflow_ref (github-workflows, not patchy — unlike the chart, which
+# patchy's own helm.yaml signs), and cosign v3 stores the signature as a
+# sigstore bundle via the OCI referrers API, which only the SigstoreBundle
+# verification type can find (the default Cosign type reads legacy .sig
+# tags and reports "no signatures found").
 #
 # failureAction starts as Audit via the cluster var default: soak a fresh
 # cluster, audit the PolicyReports, then flip KYVERNO_FAILURE_ACTION=Enforce
@@ -62,6 +68,8 @@ spec:
                       url: https://rekor.sigstore.dev
         - imageReferences:
             - "ghcr.io/bitwise-media-group/patchy/*"
+          # cosign v3 bundles attached via the OCI referrers API
+          type: SigstoreBundle
           failureAction: "${KYVERNO_FAILURE_ACTION:=Audit}"
           required: true
           # off for the same Audit-compatibility reason as the entry above
@@ -71,9 +79,15 @@ spec:
             - count: 1
               entries:
                 - keyless:
-                    # default kept in sync with the OCIRepository verify in
-                    # components/patchy/resourceset.yaml
-                    subjectRegExp: '${SIGNED_IDENTITY_PATCHY:=^https://github\.com/bitwise-media-group/patchy/}'
+                    # the reusable release workflow's identity (goreleaser
+                    # signs inside it) — NOT the patchy repo's, which signs
+                    # only the chart (components/patchy/resourceset.yaml)
+                    subjectRegExp: '${SIGNED_IDENTITY_PATCHY_IMAGES:=^https://github\.com/bitwise-media-group/github-workflows/}'
                     issuerRegExp: "${SIGNED_IDENTITY_ISSUER}"
-                    rekor:
-                      url: https://rekor.sigstore.dev
+                    # the reusable workflow signs for every repo that calls
+                    # it; the Fulcio githubWorkflowRepository extension pins
+                    # this trust to releases cut FROM the patchy repo
+                    additionalExtensions:
+                      githubWorkflowRepository: bitwise-media-group/patchy
+                    # no rekor block: the bundle embeds its tlog entry and
+                    # kyverno checks it against the sigstore TUF trust root

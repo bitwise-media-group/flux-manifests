@@ -32,8 +32,10 @@ spec:
           provider: cosign
           matchOIDCIdentity:
             - issuer: "${SIGNED_IDENTITY_ISSUER}"
-              # default kept in sync with the patchy attestor in
-              # components/kyverno-policies/verify-platform-signature.yaml
+              # the chart is signed by patchy's own helm.yaml workflow; the
+              # IMAGES are signed by the shared release workflow and carry a
+              # different identity (SIGNED_IDENTITY_PATCHY_IMAGES in
+              # components/kyverno-policies/verify-platform-signature.yaml)
               subject: '${SIGNED_IDENTITY_PATCHY:=^https://github\.com/bitwise-media-group/patchy/}'
     - apiVersion: helm.toolkit.fluxcd.io/v2
       kind: HelmRelease
