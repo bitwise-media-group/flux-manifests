@@ -49,7 +49,8 @@ jobs:
         run: |
           set -euo pipefail
           host="${PLATFORM_REGISTRY%%/*}"
-          flux oci login "$host" --username oauth2accesstoken --password-stdin <<<"$ACCESS_TOKEN"
+          # writes ~/.docker/config.json — the keychain the flux CLI reads
+          docker login "$host" --username oauth2accesstoken --password-stdin <<<"$ACCESS_TOKEN"
 
           url="oci://${PLATFORM_REGISTRY}/flux-manifests"
           # sanity: the version must exist (and be pullable) before the channel moves

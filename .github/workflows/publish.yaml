@@ -61,8 +61,8 @@ jobs:
         run: |
           set -euo pipefail
           host="${PLATFORM_REGISTRY%%/*}"
-          flux oci login "$host" --username oauth2accesstoken --password-stdin <<<"$ACCESS_TOKEN"
-          crane_auth_dir="$HOME/.docker"; mkdir -p "$crane_auth_dir" # cosign reads the same keychain
+          # writes ~/.docker/config.json — the keychain flux push and cosign both read
+          docker login "$host" --username oauth2accesstoken --password-stdin <<<"$ACCESS_TOKEN"
 
           version="${TAG#v}"
           url="oci://${PLATFORM_REGISTRY}/flux-manifests"
