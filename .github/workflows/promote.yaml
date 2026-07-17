@@ -7,7 +7,7 @@
 # service account's WIF trust also admits. Retagging moves the channel only;
 # the artifact and its signature are untouched (verification follows the
 # digest).
-name: promote
+name: Promote Manifests
 
 on:
   workflow_dispatch:

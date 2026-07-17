@@ -13,7 +13,7 @@
 # of this repo) and the Fulcio signing certificate. The FluxInstance verify
 # patch on every cluster pins this workflow's tag identity
 # (…/flux-manifests/.github/workflows/publish.yaml@refs/tags/v*).
-name: publish
+name: Publish Manifests
 
 on:
   release:
