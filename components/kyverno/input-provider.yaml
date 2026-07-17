@@ -16,5 +16,7 @@ spec:
   type: GARArtifactTag
   url: oci://${PLATFORM_REGISTRY}/charts/kyverno
   filter:
-    semver: "${KYVERNO_SEMVER:=>=3.8.0 <4.0.0}"
+    # Constraint order matters: kustomize drops the quotes, so the default
+    # must not start with '>' or YAML reads it as a folded block scalar.
+    semver: "${KYVERNO_SEMVER:=<4.0.0 >=3.8.0}"
     limit: 1

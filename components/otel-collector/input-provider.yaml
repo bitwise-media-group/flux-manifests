@@ -11,5 +11,7 @@ spec:
   type: GARArtifactTag
   url: oci://${PLATFORM_REGISTRY}/charts/opentelemetry-collector
   filter:
-    semver: "${OTEL_SEMVER:=>=0.130.0 <1.0.0}"
+    # Constraint order matters: kustomize drops the quotes, so the default
+    # must not start with '>' or YAML reads it as a folded block scalar.
+    semver: "${OTEL_SEMVER:=<1.0.0 >=0.130.0}"
     limit: 1
