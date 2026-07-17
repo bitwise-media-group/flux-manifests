@@ -9,4 +9,4 @@ resources:
   - cert-manager-issuers.yaml
   - external-dns.yaml
   - gateway.yaml
-  - otel-collector.yaml
+  # - otel-collector.yaml
