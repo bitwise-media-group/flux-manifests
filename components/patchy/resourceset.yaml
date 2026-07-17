@@ -68,7 +68,7 @@ spec:
             # demo visibility across every controller (the binaries default
             # to warn, which makes a healthy cluster look silent); revisit
             # once the demo settles
-            logLevel: info
+            logLevel: debug
           agent:
             # terraform pre-creates patchy-agents; this component's
             # namespace.yaml carries the restricted Pod Security labels the
