@@ -1,0 +1,37 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+
+# Let's Encrypt cluster issuers, DNS-01 via Cloud DNS. No
+# serviceAccountSecretRef: ambient credentials (the controller's direct
+# Workload Identity grant) solve against the delegated zone in ${GCP_PROJECT}.
+# The staging issuer exists for cert debugging without burning prod rate
+# limits.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-prod
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: ${ACME_EMAIL}
+    privateKeySecretRef:
+      name: letsencrypt-prod-account
+    solvers:
+      - dns01:
+          cloudDNS:
+            project: ${GCP_PROJECT}
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-staging
+spec:
+  acme:
+    server: https://acme-staging-v02.api.letsencrypt.org/directory
+    email: ${ACME_EMAIL}
+    privateKeySecretRef:
+      name: letsencrypt-staging-account
+    solvers:
+      - dns01:
+          cloudDNS:
+            project: ${GCP_PROJECT}

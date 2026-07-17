@@ -1,0 +1,19 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+
+# The webhook host's certificate, issued by Let's Encrypt via DNS-01 into the
+# secret the Gateway listener terminates with. Fully declarative: on cluster
+# recreation cert-manager re-issues into the same secret name and the
+# listener comes back serving valid TLS with no manual action.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: patchy-tls
+  namespace: gateway
+spec:
+  secretName: patchy-tls
+  dnsNames:
+    - ${PATCHY_DOMAIN}
+  issuerRef:
+    kind: ClusterIssuer
+    name: letsencrypt-prod

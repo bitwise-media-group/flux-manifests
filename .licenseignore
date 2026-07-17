@@ -1,0 +1,3 @@
+tests/schemas/**
+tests/cluster-vars.env
+.build/**

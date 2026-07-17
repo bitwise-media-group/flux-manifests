@@ -1,0 +1,16 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSetInputProvider
+metadata:
+  name: cert-manager
+  namespace: cert-manager
+  annotations:
+    fluxcd.controlplane.io/reconcileEvery: 30m
+spec:
+  type: GARArtifactTag
+  url: oci://${PLATFORM_REGISTRY}/charts/cert-manager
+  filter:
+    # upstream tags carry a leading v (v1.21.0)
+    semver: "${CERT_MANAGER_SEMVER:=>=1.18.0 <2.0.0}"
+    limit: 1

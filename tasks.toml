@@ -1,0 +1,39 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+#
+# Repo-local tasks: the stack validation harness. lint/fmt stay the
+# archetype's (license headers, prose, actionlint, shell, kustomize/helm
+# config scans).
+
+[test]
+description = "render + schema-validate the stack (kustomize build, substitution, resourceset render, kubeconform)"
+run = "./scripts/validate.sh"
+
+# Repo-local replacement for the toolchain's lint-kustomize: kubescape fatals
+# on directories that contain ONLY custom resources it can't map (stack/ is
+# all Flux Kustomizations; kyverno-policies and cert-manager-issuers are
+# ClusterPolicy/ClusterIssuer only). Config coverage of the actual workloads
+# lives in flux-containers (kubescape over each chart's rendered manifests);
+# here we scan the component dirs that carry core-typed resources.
+[lint-kustomize]
+hide = true
+run = """
+set -eu
+export KUBECONFIG=/nonexistent
+for d in components/kyverno components/cert-manager components/external-dns components/otel-collector components/gateway; do
+  echo "lint-kustomize: kubescape scan $d"
+  if [ -f .kubescape/exceptions.json ]; then
+    kubescape scan "$d" --logger warning --severity-threshold "${KUBESCAPE_SEVERITY:-high}" --exceptions .kubescape/exceptions.json
+  else
+    kubescape scan "$d" --logger warning --severity-threshold "${KUBESCAPE_SEVERITY:-high}"
+  fi
+done
+"""
+
+[ci]
+description = "the checks the reusable CI workflow runs"
+run = [{ task = "lint" }, { task = "test" }]
+
+[pr]
+description = "full local gate before a pull request"
+run = [{ task = "fmt" }, { task = "lint" }, { task = "test" }, { task = "commit" }]

@@ -1,0 +1,20 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+
+# Lists chart versions from the platform registry; the newest tag in the
+# semver range flows into the ResourceSet, so a flux-containers publish rolls
+# out on the next reconcile. Auth is ambient: the flux-operator service
+# account reads Artifact Registry via its Workload Identity grant.
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSetInputProvider
+metadata:
+  name: kyverno
+  namespace: kyverno
+  annotations:
+    fluxcd.controlplane.io/reconcileEvery: 30m
+spec:
+  type: GARArtifactTag
+  url: oci://${PLATFORM_REGISTRY}/charts/kyverno
+  filter:
+    semver: "${KYVERNO_SEMVER:=>=3.8.0 <4.0.0}"
+    limit: 1

@@ -1,0 +1,103 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+
+# The platform's OTLP endpoint — the whole observability stack (replaces a
+# prometheus stack entirely: GKE system metrics are Cloud Monitoring's job,
+# and patchy pushes OTLP). Workloads export to
+#   otel-collector.otel-collector.svc.cluster.local:4317   (gRPC, 4318 http)
+# and the collector forwards: traces + logs via the googlecloud exporter,
+# metrics via googlemanagedprometheus — both -contrib-only exporters, hence
+# the contrib image. GCP access is ambient (direct Workload Identity grant on
+# the pinned ServiceAccount, created by terraform).
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSet
+metadata:
+  name: otel-collector
+  namespace: otel-collector
+spec:
+  inputsFrom:
+    - kind: ResourceSetInputProvider
+      name: otel-collector
+  resources:
+    - apiVersion: source.toolkit.fluxcd.io/v1
+      kind: OCIRepository
+      metadata:
+        name: otel-collector
+        namespace: otel-collector
+      spec:
+        interval: 1h
+        url: oci://${PLATFORM_REGISTRY}/charts/opentelemetry-collector
+        provider: "${OCI_PROVIDER:=gcp}"
+        ref:
+          tag: << inputs.tag >>
+        verify:
+          provider: cosign
+          matchOIDCIdentity:
+            - issuer: "${SIGNED_IDENTITY_ISSUER}"
+              subject: "${SIGNED_IDENTITY_CHARTS}"
+    - apiVersion: helm.toolkit.fluxcd.io/v2
+      kind: HelmRelease
+      metadata:
+        name: otel-collector
+        namespace: otel-collector
+      spec:
+        interval: 30m
+        timeout: 5m
+        chartRef:
+          kind: OCIRepository
+          name: otel-collector
+          namespace: otel-collector
+        values:
+          # plain collector deployment — no operator, no sidecar injection;
+          # one shared pipeline is all the platform needs
+          mode: deployment
+          replicaCount: 2
+          image:
+            repository: ${CONTAINER_REGISTRY}/images/ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector-contrib
+          command:
+            name: otelcol-contrib
+          # The terraform Workload Identity grant binds
+          # otel-collector/otel-collector — pin the name so the contract holds.
+          serviceAccount:
+            create: true
+            name: otel-collector
+          nodeSelector:
+            role: system
+          config:
+            receivers:
+              otlp:
+                protocols:
+                  grpc:
+                    endpoint: 0.0.0.0:4317
+                  http:
+                    endpoint: 0.0.0.0:4318
+            processors:
+              memory_limiter:
+                check_interval: 1s
+                limit_percentage: 80
+                spike_limit_percentage: 25
+              # stamps gcp resource attributes so telemetry lands on the right
+              # monitored resources
+              resourcedetection:
+                detectors: [gcp]
+                timeout: 10s
+              batch: {}
+            exporters:
+              googlecloud:
+                project: ${OTEL_PROJECT}
+              googlemanagedprometheus:
+                project: ${OTEL_PROJECT}
+            service:
+              pipelines:
+                traces:
+                  receivers: [otlp]
+                  processors: [memory_limiter, resourcedetection, batch]
+                  exporters: [googlecloud]
+                metrics:
+                  receivers: [otlp]
+                  processors: [memory_limiter, resourcedetection, batch]
+                  exporters: [googlemanagedprometheus]
+                logs:
+                  receivers: [otlp]
+                  processors: [memory_limiter, resourcedetection, batch]
+                  exporters: [googlecloud]

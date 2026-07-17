@@ -1,0 +1,23 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+#
+# flux-manifests consumes the shared toolchain (bitwise-media-group/toolchain)
+# as the .mise/ submodule: pinned tools and the universal lint tasks come from
+# there, and the Makefile is a thin forwarder (.mise/mise.mk). The validation
+# task surface lives in tasks.toml.
+
+[task_config]
+# markdown-lib archetype (prose fmt/lint + license + actionlint + shell lint)
+# plus the repo-local validation tasks; tasks.toml is included AFTER the
+# archetype so its same-named aggregates (ci, pr) win.
+includes = [".mise/tasks/markdown-lib.toml", "tasks.toml"]
+
+[tools]
+# Validation tools the toolchain does not pin (candidates for upstreaming;
+# locked in this repo's own mise.lock meanwhile — never run a repo-wide
+# `mise upgrade`, it would write into the submodule).
+"aqua:kubernetes-sigs/kustomize" = "5.7.1"
+"aqua:yannh/kubeconform" = "0.7.0"
+"aqua:mikefarah/yq" = "4.53.3"
+# renders ResourceSets with sample inputs (`flux-operator build resourceset`)
+"github:controlplaneio-fluxcd/flux-operator" = "0.55.0"

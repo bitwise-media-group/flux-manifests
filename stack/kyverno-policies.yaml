@@ -1,0 +1,24 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: kyverno-policies
+  namespace: flux-system
+spec:
+  interval: 30m
+  retryInterval: 2m
+  timeout: 5m
+  wait: true
+  prune: true
+  # The policy engine must be serving before the policy can be admitted.
+  dependsOn:
+    - name: kyverno
+  sourceRef:
+    kind: OCIRepository
+    name: flux-system
+  path: ./components/kyverno-policies
+  postBuild:
+    substituteFrom:
+      - kind: ConfigMap
+        name: cluster-vars

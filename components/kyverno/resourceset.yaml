@@ -1,0 +1,74 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+
+# Kyverno policy engine: enforces the verify-platform-signature ClusterPolicy
+# (kyverno-policies component) so only images signed by the platform pipeline
+# are admitted. Registry credentials for signature fetches come from the
+# terraform-created Workload Identity grants on the admission and reports
+# controller ServiceAccounts.
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSet
+metadata:
+  name: kyverno
+  namespace: kyverno
+spec:
+  inputsFrom:
+    - kind: ResourceSetInputProvider
+      name: kyverno
+  resources:
+    - apiVersion: source.toolkit.fluxcd.io/v1
+      kind: OCIRepository
+      metadata:
+        name: kyverno
+        namespace: kyverno
+      spec:
+        interval: 1h
+        url: oci://${PLATFORM_REGISTRY}/charts/kyverno
+        # Registry auth (gcp = Artifact Registry via Workload Identity).
+        provider: "${OCI_PROVIDER:=gcp}"
+        ref:
+          tag: << inputs.tag >>
+        # Keyless: the chart must carry a Fulcio certificate from the
+        # flux-containers publish workflow.
+        verify:
+          provider: cosign
+          matchOIDCIdentity:
+            - issuer: "${SIGNED_IDENTITY_ISSUER}"
+              subject: "${SIGNED_IDENTITY_CHARTS}"
+    - apiVersion: helm.toolkit.fluxcd.io/v2
+      kind: HelmRelease
+      metadata:
+        name: kyverno
+        namespace: kyverno
+      spec:
+        interval: 30m
+        timeout: 10m
+        chartRef:
+          kind: OCIRepository
+          name: kyverno
+          namespace: kyverno
+        install:
+          crds: CreateReplace
+        upgrade:
+          crds: CreateReplace
+        values:
+          global:
+            image:
+              # Mirrored images; the chart's per-controller repository values
+              # resolve beneath this (kyverno/kyverno, kyverno/kyvernopre, ...).
+              registry: ${CONTAINER_REGISTRY}/images/reg.kyverno.io
+            # Platform controllers run on the always-on system pool.
+            nodeSelector:
+              role: system
+          # Admission is in every pod's critical path (failurePolicy Fail): run it HA.
+          admissionController:
+            replicas: 3
+          # Hook jobs are disabled to keep the image set identical to the
+          # mirror's discovery render (flux-containers charts/kyverno). Note:
+          # webhooksCleanup is a pre-delete hook; without it, webhook
+          # configurations linger if the release is ever uninstalled and must
+          # be removed by hand.
+          webhooksCleanup:
+            enabled: false
+          policyReportsCleanup:
+            enabled: false

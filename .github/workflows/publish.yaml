@@ -1,0 +1,88 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+
+# Publish — push the released stack as an OCI artifact to the platform
+# Artifact Registry, sign it keylessly, and move the `staging` channel tag.
+# Runs when release-please cuts a release (App-authored, so the event fires);
+# clusters syncing `staging` pick the new version up on their next reconcile,
+# and `stable` clusters wait for promote.yaml.
+#
+# The job's GitHub OIDC token mints both the GCP access token (via Workload
+# Identity Federation, impersonating the manifest-publisher service account
+# the artifact-store terraform created — its trust admits exactly refs/tags/v*
+# of this repo) and the Fulcio signing certificate. The FluxInstance verify
+# patch on every cluster pins this workflow's tag identity
+# (…/flux-manifests/.github/workflows/publish.yaml@refs/tags/v*).
+name: publish
+
+on:
+  release:
+    types: [published]
+
+permissions: {}
+
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # WIF token exchange + cosign keyless both ride the job's OIDC token
+      id-token: write
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          # the artifact is built from the release tag, not a branch head
+          ref: ${{ github.event.release.tag_name }}
+
+      - name: install flux CLI
+        uses: fluxcd/flux2/action@e7c8344229f561f69b3f053987aa1064e135a11f # v2.9.2
+
+      - name: install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: authenticate to Google Cloud
+        id: auth
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          # artifact-store module outputs, mirrored as repository variables
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+          token_format: access_token
+
+      - name: push, sign, move staging
+        env:
+          ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
+          PLATFORM_REGISTRY: ${{ vars.PLATFORM_REGISTRY }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          host="${PLATFORM_REGISTRY%%/*}"
+          flux oci login "$host" --username oauth2accesstoken --password-stdin <<<"$ACCESS_TOKEN"
+          crane_auth_dir="$HOME/.docker"; mkdir -p "$crane_auth_dir" # cosign reads the same keychain
+
+          version="${TAG#v}"
+          url="oci://${PLATFORM_REGISTRY}/flux-manifests"
+
+          digest="$(flux push artifact "$url:$version" \
+            --path . \
+            --source "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+            --revision "$TAG@sha1:$GITHUB_SHA" \
+            --output json | jq -r .digest)"
+
+          # keyless: the Fulcio certificate subject is exactly this workflow at
+          # this tag — what every cluster's FluxInstance verify patch matches
+          cosign sign --yes --tlog-upload=true --use-signing-config=false \
+            "${PLATFORM_REGISTRY}/flux-manifests@$digest"
+
+          flux tag artifact "$url:$version" --tag staging
+
+          {
+            echo "## Published flux-manifests $version"
+            echo
+            echo "- digest: \`$digest\`"
+            echo "- channel: \`staging\`"
+          } >> "$GITHUB_STEP_SUMMARY"

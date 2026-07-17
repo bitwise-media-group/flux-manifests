@@ -1,0 +1,15 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSetInputProvider
+metadata:
+  name: external-dns
+  namespace: external-dns
+  annotations:
+    fluxcd.controlplane.io/reconcileEvery: 30m
+spec:
+  type: GARArtifactTag
+  url: oci://${PLATFORM_REGISTRY}/charts/external-dns
+  filter:
+    semver: "${EXTERNAL_DNS_SEMVER:=>=1.15.0 <2.0.0}"
+    limit: 1

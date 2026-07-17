@@ -1,0 +1,51 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+
+# Every pod image must carry a keyless cosign signature from the platform
+# publish workflow, except GKE-managed system images (Google signs and
+# delivers those, not the platform pipeline). Image-based exclusion is
+# deliberate: GKE system pods appear in kube-system, gmp-system and
+# gke-managed-* namespaces, and new managed namespaces appear with cluster
+# features — the registries are the stable contract. kube-system itself is
+# additionally excluded at the webhook level by the kyverno chart defaults.
+#
+# failureAction starts as Audit via the cluster var default: soak a fresh
+# cluster, audit the PolicyReports, then flip KYVERNO_FAILURE_ACTION=Enforce
+# in terraform's flux.cluster_vars — no manifests release needed.
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: verify-platform-signature
+spec:
+  webhookConfiguration:
+    failurePolicy: Fail
+    timeoutSeconds: 30
+  rules:
+    - name: verify-platform-signature
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+      verifyImages:
+        - imageReferences:
+            - "*"
+          skipImageReferences:
+            - "gke.gcr.io/*"
+            - "gcr.io/gke-release/*"
+            - "registry.k8s.io/*"
+          failureAction: "${KYVERNO_FAILURE_ACTION:=Audit}"
+          required: true
+          # Rewrite matched images to their digest before admission, so what
+          # was verified is exactly what runs.
+          mutateDigest: true
+          verifyDigest: true
+          attestors:
+            - count: 1
+              entries:
+                - keyless:
+                    subjectRegExp: "${SIGNED_IDENTITY_IMAGES}"
+                    issuerRegExp: "${SIGNED_IDENTITY_ISSUER}"
+                    rekor:
+                      # public Rekor — the platform signs with tlog upload on
+                      url: https://rekor.sigstore.dev

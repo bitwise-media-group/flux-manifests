@@ -1,0 +1,15 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSetInputProvider
+metadata:
+  name: otel-collector
+  namespace: otel-collector
+  annotations:
+    fluxcd.controlplane.io/reconcileEvery: 30m
+spec:
+  type: GARArtifactTag
+  url: oci://${PLATFORM_REGISTRY}/charts/opentelemetry-collector
+  filter:
+    semver: "${OTEL_SEMVER:=>=0.130.0 <1.0.0}"
+    limit: 1
