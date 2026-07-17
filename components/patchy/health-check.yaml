@@ -1,0 +1,25 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+
+# The GKE Gateway's managed load balancer health-checks backend pods with a
+# default GET / unless told otherwise, and the webhook-controller serves only
+# /webhook, /healthz and /readyz — so the NEG endpoints go unhealthy and the
+# gateway answers "no healthy upstream". Point the probe at the readiness
+# endpoint instead.
+apiVersion: networking.gke.io/v1
+kind: HealthCheckPolicy
+metadata:
+  name: patchy-webhook
+  namespace: patchy
+spec:
+  default:
+    config:
+      type: HTTP
+      httpHealthCheck:
+        portSpecification: USE_FIXED_PORT
+        port: 8080
+        requestPath: /readyz
+  targetRef:
+    group: ""
+    kind: Service
+    name: patchy-webhook-controller

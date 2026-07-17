@@ -6,5 +6,6 @@ resources:
   - namespace.yaml
   - secret-sync.yaml
   - static-context.yaml
+  - health-check.yaml
   - input-provider.yaml
   - resourceset.yaml
