@@ -15,5 +15,7 @@ spec:
   filter:
     # chart tags are bare chart versions (e.g. 0.3.1); chart version tracks
     # the app version 1:1 and the image tag defaults to v<version>
-    semver: "${PATCHY_SEMVER:=>=0.3.0 <1.0.0}"
+    # Constraint order matters: kustomize drops the quotes, so the default
+    # must not start with '>' or YAML reads it as a folded block scalar.
+    semver: "${PATCHY_SEMVER:=<1.0.0 >=0.3.0}"
     limit: 1
