@@ -43,10 +43,14 @@ spec:
             - "ghcr.io/bitwise-media-group/patchy/*"
           failureAction: "${KYVERNO_FAILURE_ACTION:=Audit}"
           required: true
-          # Rewrite matched images to their digest before admission, so what
-          # was verified is exactly what runs.
-          mutateDigest: true
-          verifyDigest: true
+          # Digest rewriting stays off: kyverno rejects mutateDigest under an
+          # Audit failureAction, and failureAction is cluster-var-driven, so
+          # the policy must be valid in both modes. verifyDigest follows suit
+          # — without the mutation, tag-referenced images carry no digest and
+          # would fail that check spuriously. What is verified is the cosign
+          # signature on whatever the tag resolves to at admission.
+          mutateDigest: false
+          verifyDigest: false
           attestors:
             - count: 1
               entries:
@@ -60,8 +64,9 @@ spec:
             - "ghcr.io/bitwise-media-group/patchy/*"
           failureAction: "${KYVERNO_FAILURE_ACTION:=Audit}"
           required: true
-          mutateDigest: true
-          verifyDigest: true
+          # off for the same Audit-compatibility reason as the entry above
+          mutateDigest: false
+          verifyDigest: false
           attestors:
             - count: 1
               entries:
