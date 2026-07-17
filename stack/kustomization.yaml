@@ -9,4 +9,5 @@ resources:
   - cert-manager-issuers.yaml
   - external-dns.yaml
   - gateway.yaml
+  - patchy.yaml
   # - otel-collector.yaml

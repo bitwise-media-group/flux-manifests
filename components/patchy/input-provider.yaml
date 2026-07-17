@@ -1,0 +1,19 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSetInputProvider
+metadata:
+  name: patchy
+  namespace: patchy
+  annotations:
+    fluxcd.controlplane.io/reconcileEvery: 30m
+spec:
+  # generic OCI, not GARArtifactTag: the chart lives on ghcr (anonymously
+  # pullable), not the platform GAR mirror
+  type: OCIArtifactTag
+  url: oci://ghcr.io/bitwise-media-group/patchy/charts/patchy
+  filter:
+    # chart tags are bare chart versions (e.g. 0.3.1); chart version tracks
+    # the app version 1:1 and the image tag defaults to v<version>
+    semver: "${PATCHY_SEMVER:=>=0.3.0 <1.0.0}"
+    limit: 1

@@ -1,0 +1,21 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+
+# Both namespaces are pre-created bare by terraform (the cluster-inputs chart)
+# so secrets can land before patchy deploys; this component adopts them via
+# server-side apply. The chart is told createNamespace: false, so the
+# restricted Pod Security labels it would have stamped on the agent sandbox
+# land here instead.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: patchy
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: patchy-agents
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted

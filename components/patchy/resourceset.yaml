@@ -1,0 +1,110 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+
+# Patchy itself: chart pulled straight from ghcr (generic provider,
+# anonymous) and cosign keyless-verified against the patchy repo's own
+# publish identity -- unlike the platform components, which ride the
+# flux-containers mirror. The three Secrets it consumes are synced in
+# secret-sync.yaml; the mocked CMDB rides in via a postRenderer because the
+# chart has no extraVolumes knob.
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSet
+metadata:
+  name: patchy
+  namespace: patchy
+spec:
+  inputsFrom:
+    - kind: ResourceSetInputProvider
+      name: patchy
+  resources:
+    - apiVersion: source.toolkit.fluxcd.io/v1
+      kind: OCIRepository
+      metadata:
+        name: patchy
+        namespace: patchy
+      spec:
+        interval: 1h
+        url: oci://ghcr.io/bitwise-media-group/patchy/charts/patchy
+        provider: generic
+        ref:
+          tag: << inputs.tag >>
+        verify:
+          provider: cosign
+          matchOIDCIdentity:
+            - issuer: "${SIGNED_IDENTITY_ISSUER}"
+              # default kept in sync with the patchy attestor in
+              # components/kyverno-policies/verify-platform-signature.yaml
+              subject: '${SIGNED_IDENTITY_PATCHY:=^https://github\.com/bitwise-media-group/patchy/}'
+    - apiVersion: helm.toolkit.fluxcd.io/v2
+      kind: HelmRelease
+      metadata:
+        name: patchy
+        namespace: patchy
+      spec:
+        interval: 30m
+        timeout: 10m
+        chartRef:
+          kind: OCIRepository
+          name: patchy
+          namespace: patchy
+        values:
+          webhook:
+            # the platform Gateway's https listener already terminates TLS
+            # for this hostname and admits routes from this namespace
+            host: ${PATCHY_DOMAIN}
+            httpRoute:
+              enabled: true
+              parentRefs:
+                - name: platform
+                  namespace: gateway
+                  sectionName: https
+          anthropic:
+            # the synced Secret holds a `claude setup-token` OAuth token,
+            # not an API key
+            secretEnv: CLAUDE_CODE_OAUTH_TOKEN
+          agent:
+            # terraform pre-creates patchy-agents; this component's
+            # namespace.yaml carries the restricted Pod Security labels the
+            # chart would otherwise stamp
+            createNamespace: false
+          # The controllers are small always-on singletons -> the system
+          # pool; agent Jobs carry no selector and ride node
+          # auto-provisioning.
+          webhookController:
+            nodeSelector:
+              role: system
+          sourceController:
+            nodeSelector:
+              role: system
+          contextController:
+            nodeSelector:
+              role: system
+            config:
+              extra:
+                # the mocked CMDB (static-context.yaml), mounted by the
+                # postRenderer below
+                PATCHY_STATIC_CONTEXT_FILE: /etc/patchy/context/cmdb.yaml
+          remediationController:
+            nodeSelector:
+              role: system
+        # The chart has no extraVolumes knob, so the mocked CMDB is mounted
+        # by patching the rendered context-controller Deployment.
+        postRenderers:
+          - kustomize:
+              patches:
+                - target:
+                    kind: Deployment
+                    name: patchy-context-controller
+                  patch: |
+                    - op: add
+                      path: /spec/template/spec/volumes/-
+                      value:
+                        name: static-context
+                        configMap:
+                          name: patchy-static-context
+                    - op: add
+                      path: /spec/template/spec/containers/0/volumeMounts/-
+                      value:
+                        name: static-context
+                        mountPath: /etc/patchy/context
+                        readOnly: true

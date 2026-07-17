@@ -20,7 +20,7 @@ hide = true
 run = """
 set -eu
 export KUBECONFIG=/nonexistent
-for d in components/kyverno components/cert-manager components/external-dns components/otel-collector components/gateway; do
+for d in components/kyverno components/cert-manager components/external-dns components/otel-collector components/gateway components/patchy; do
   echo "lint-kustomize: kubescape scan $d"
   if [ -f .kubescape/exceptions.json ]; then
     kubescape scan "$d" --logger warning --severity-threshold "${KUBESCAPE_SEVERITY:-high}" --exceptions .kubescape/exceptions.json

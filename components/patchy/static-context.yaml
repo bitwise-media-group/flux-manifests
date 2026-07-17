@@ -1,0 +1,22 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+
+# The mocked CMDB the context-controller reads (PATCHY_STATIC_CONTEXT_FILE in
+# the HelmRelease values; mounted by the postRenderer patch in
+# resourceset.yaml). The parser is strict -- unknown keys are a startup error
+# and attribute values must be strings.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: patchy-static-context
+  namespace: patchy
+data:
+  cmdb.yaml: |
+    repos:
+      bitwisemedia/secure-code-game:
+        owners:
+          - dmccaffery
+          - irishredbeard
+        attributes:
+          environment: prod
+          internet-facing: "true"
