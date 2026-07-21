@@ -4,9 +4,9 @@
 # Patchy itself: chart pulled straight from ghcr (generic provider,
 # anonymous) and cosign keyless-verified against the patchy repo's own
 # publish identity -- unlike the platform components, which ride the
-# flux-containers mirror. The three Secrets it consumes are synced in
-# secret-sync.yaml; the mocked CMDB rides in via a postRenderer because the
-# chart has no extraVolumes knob.
+# flux-containers mirror. The two Secrets it consumes (patchy-github,
+# patchy-anthropic) are synced in secret-sync.yaml; the mocked CMDB rides in
+# via a postRenderer because the chart has no extraVolumes knob.
 apiVersion: fluxcd.controlplane.io/v1
 kind: ResourceSet
 metadata:
@@ -51,15 +51,17 @@ spec:
           namespace: patchy
         values:
           webhook:
-            # the platform Gateway's https listener already terminates TLS
-            # for this hostname and admits routes from this namespace
-            host: ${PATCHY_DOMAIN}
+            # the machine edge: GitHub delivers to the integration-controller
+            # on its own hostname; the platform Gateway's https-integrations
+            # listener terminates TLS for it and admits routes from this
+            # namespace
+            host: integrations.${PATCHY_DOMAIN}
             httpRoute:
               enabled: true
               parentRefs:
                 - name: platform
                   namespace: gateway
-                  sectionName: https
+                  sectionName: https-integrations
           anthropic:
             # the synced Secret holds a `claude setup-token` OAuth token,
             # not an API key
@@ -69,6 +71,31 @@ spec:
             # to warn, which makes a healthy cluster look silent); revisit
             # once the demo settles
             logLevel: debug
+          # The pipeline switch-on: the controllers idle until an Integration
+          # (findings in, tracking issues out) and a Forge (repository
+          # clone/push) exist. Both reference the one synced patchy-github
+          # Secret (secret-sync.yaml) — a single GitHub App serves read and
+          # write.
+          integrations:
+            - name: github
+              spec:
+                provider: github
+                secretRef:
+                  name: patchy-github
+                interval: 10m
+                github:
+                  issues:
+                    enabled: true
+                    approveComment: /approve
+                  codeScanningAlerts:
+                    enabled: true
+          forges:
+            - name: github
+              spec:
+                provider: github
+                secretRef:
+                  name: patchy-github
+                interval: 10m
           agent:
             # terraform pre-creates patchy-agents; this component's
             # namespace.yaml carries the restricted Pod Security labels the
@@ -77,7 +104,7 @@ spec:
           # The controllers are small always-on singletons -> the system
           # pool; agent Jobs carry no selector and ride node
           # auto-provisioning.
-          webhookController:
+          integrationController:
             nodeSelector:
               role: system
           sourceController:
@@ -91,7 +118,28 @@ spec:
                 # the mocked CMDB (static-context.yaml), mounted by the
                 # postRenderer below
                 PATCHY_STATIC_CONTEXT_FILE: /etc/patchy/context/cmdb.yaml
+          investigationController:
+            nodeSelector:
+              role: system
           remediationController:
+            nodeSelector:
+              role: system
+          statusServer:
+            # the human edge, deliberately a separate hostname from the
+            # webhook's: this one authenticates people, that one HMAC-signed
+            # machines. OIDC sign-in through the platform dex (the synced
+            # patchy-status-auth Secret carries config.yaml plus the
+            # client-secret key its clientSecretFile points at) opens the
+            # findings board.
+            auth:
+              existingSecret: patchy-status-auth
+            host: status.${PATCHY_DOMAIN}
+            httpRoute:
+              enabled: true
+              parentRefs:
+                - name: platform
+                  namespace: gateway
+                  sectionName: https-status
             nodeSelector:
               role: system
         # The chart has no extraVolumes knob, so the mocked CMDB is mounted

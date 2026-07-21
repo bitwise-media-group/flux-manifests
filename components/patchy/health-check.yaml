@@ -2,10 +2,10 @@
 # SPDX-License-Identifier: MIT
 
 # The GKE Gateway's managed load balancer health-checks backend pods with a
-# default GET / unless told otherwise, and the webhook-controller serves only
-# /webhook, /healthz and /readyz — so the NEG endpoints go unhealthy and the
-# gateway answers "no healthy upstream". Point the probe at the readiness
-# endpoint instead.
+# default GET / unless told otherwise, and the integration-controller serves
+# only /github/webhooks, /healthz and /readyz — so the NEG endpoints go
+# unhealthy and the gateway answers "no healthy upstream". Point the probe at
+# the readiness endpoint instead.
 apiVersion: networking.gke.io/v1
 kind: HealthCheckPolicy
 metadata:
@@ -22,4 +22,27 @@ spec:
   targetRef:
     group: ""
     kind: Service
-    name: patchy-webhook-controller
+    name: patchy-integration-controller
+---
+# Same treatment for the status page's backend. Its serving port answers
+# GET / with the SPA today, but the real readiness endpoint lives on the
+# health port (:8081, admitted by both the chart's NetworkPolicy and the
+# all-TCP GFE prober firewall rule) — probe that rather than coupling LB
+# health to whatever the SPA shell happens to return.
+apiVersion: networking.gke.io/v1
+kind: HealthCheckPolicy
+metadata:
+  name: patchy-status
+  namespace: patchy
+spec:
+  default:
+    config:
+      type: HTTP
+      httpHealthCheck:
+        portSpecification: USE_FIXED_PORT
+        port: 8081
+        requestPath: /readyz
+  targetRef:
+    group: ""
+    kind: Service
+    name: patchy-status-server
