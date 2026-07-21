@@ -1,10 +1,12 @@
 # Copyright 2026 BitWise Media Group Ltd
 # SPDX-License-Identifier: MIT
 
-# The webhook host's certificate, issued by Let's Encrypt via DNS-01 into the
-# secret the Gateway listener terminates with. Fully declarative: on cluster
-# recreation cert-manager re-issues into the same secret name and the
-# listener comes back serving valid TLS with no manual action.
+# The certificate for every platform hostname — patchy's webhook (machine)
+# edge and status page (human) edge, the dex OIDC issuer, and the Flux
+# status web UI — issued by Let's Encrypt via DNS-01 into the secret all
+# Gateway listeners terminate with. Fully declarative: on cluster recreation
+# cert-manager re-issues into the same secret name and the listeners come
+# back serving valid TLS with no manual action.
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
@@ -13,7 +15,10 @@ metadata:
 spec:
   secretName: patchy-tls
   dnsNames:
-    - ${PATCHY_DOMAIN}
+    - integrations.${PATCHY_DOMAIN}
+    - status.${PATCHY_DOMAIN}
+    - dex.${PATCHY_DOMAIN}
+    - flux.${PATCHY_DOMAIN}
   issuerRef:
     kind: ClusterIssuer
     name: letsencrypt-prod

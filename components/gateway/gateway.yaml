@@ -5,8 +5,11 @@
 # external Application Load Balancer (no ingress controller pods). It attaches
 # the terraform-reserved global static IP by name, so cluster destroy/recreate
 # serves the same address — DNS barely blips even before external-dns
-# reconverges. Patchy's webhook HTTPRoute attaches to the https listener from
-# the patchy namespace (webhook.httpRoute.parentRefs in its chart).
+# reconverges. Four listeners, one per hostname, each admitting routes only
+# from its owning namespace: patchy's machine edge (integration-controller
+# webhook receivers) and human edge (status page), the dex OIDC issuer, and
+# the Flux status web UI. All terminate with the one patchy-tls certificate,
+# which carries every name.
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
 metadata:
@@ -19,10 +22,10 @@ spec:
     - type: NamedAddress
       value: ${GATEWAY_ADDRESS_NAME}
   listeners:
-    - name: https
+    - name: https-integrations
       protocol: HTTPS
       port: 443
-      hostname: "${PATCHY_DOMAIN}"
+      hostname: "integrations.${PATCHY_DOMAIN}"
       tls:
         mode: Terminate
         certificateRefs:
@@ -34,3 +37,48 @@ spec:
           selector:
             matchLabels:
               kubernetes.io/metadata.name: patchy
+    - name: https-status
+      protocol: HTTPS
+      port: 443
+      hostname: "status.${PATCHY_DOMAIN}"
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: patchy-tls
+      allowedRoutes:
+        namespaces:
+          from: Selector
+          selector:
+            matchLabels:
+              kubernetes.io/metadata.name: patchy
+    - name: https-dex
+      protocol: HTTPS
+      port: 443
+      hostname: "dex.${PATCHY_DOMAIN}"
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: patchy-tls
+      allowedRoutes:
+        namespaces:
+          from: Selector
+          selector:
+            matchLabels:
+              kubernetes.io/metadata.name: dex
+    - name: https-flux
+      protocol: HTTPS
+      port: 443
+      hostname: "flux.${PATCHY_DOMAIN}"
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: patchy-tls
+      allowedRoutes:
+        namespaces:
+          from: Selector
+          selector:
+            matchLabels:
+              kubernetes.io/metadata.name: flux-system
