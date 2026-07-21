@@ -1,0 +1,17 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSetInputProvider
+metadata:
+  name: dex
+  namespace: dex
+  annotations:
+    fluxcd.controlplane.io/reconcileEvery: 30m
+spec:
+  type: GARArtifactTag
+  url: oci://${PLATFORM_REGISTRY}/charts/dex
+  filter:
+    # Constraint order matters: kustomize drops the quotes, so the default
+    # must not start with '>' or YAML reads it as a folded block scalar.
+    semver: "${DEX_SEMVER:=<1.0.0 >=0.24.0}"
+    limit: 1
