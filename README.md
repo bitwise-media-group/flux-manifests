@@ -50,6 +50,9 @@ Kustomization (`${VAR}`, `${VAR:=default}`); optional surfaces use the empty-str
 | `GATEWAY_ADDRESS_NAME`   | `patchy-x-gateway`                                 | gateway (NamedAddress)                                           |
 | `GATEWAY_IP`             | `203.0.113.10`                                     | (informational)                                                  |
 | `OTEL_PROJECT`           | `x-patchy-app-ab12`                                | otel-collector exporters                                         |
+| `RBAC_GROUP_VIEWERS`     | `gcp-x-patchy-viewers@bitwisemedia.co.uk`          | RBAC bindings (read-only subjects)                               |
+| `RBAC_GROUP_DEVELOPERS`  | `gcp-x-patchy-developers@bitwisemedia.co.uk`       | RBAC bindings (developer subjects)                               |
+| `RBAC_GROUP_DEVOPS`      | `gcp-x-patchy-devops@bitwisemedia.co.uk`           | RBAC bindings (devops subjects)                                  |
 | `KYVERNO_FAILURE_ACTION` | default `Audit`                                    | kyverno policy — flip to `Enforce` after soaking a fresh cluster |
 | `*_SEMVER`               | `>=3.8.0 <4.0.0`                                   | per-component chart range overrides                              |
 
