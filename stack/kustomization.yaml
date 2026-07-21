@@ -8,6 +8,8 @@ resources:
   - cert-manager.yaml
   - cert-manager-issuers.yaml
   - external-dns.yaml
+  - dex.yaml
   - gateway.yaml
+  - flux-web.yaml
   - patchy.yaml
   # - otel-collector.yaml

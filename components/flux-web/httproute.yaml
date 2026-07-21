@@ -1,0 +1,55 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+
+# The Flux status web UI's edge: flux.<domain> through the platform
+# Gateway's https-flux listener to the flux-operator Service's web port. The
+# route lives here rather than in the operator's helm values because the
+# operator is bootstrapped by terraform before the Gateway exists; the
+# manifests stack owns everything that depends on the platform edge.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: flux-web
+  namespace: flux-system
+spec:
+  parentRefs:
+    - name: platform
+      namespace: gateway
+      sectionName: https-flux
+  hostnames:
+    - flux.${PATCHY_DOMAIN}
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: flux-operator
+          port: 9080
+---
+# The chart's flux-operator-web NetworkPolicy admits 9080 from cluster
+# namespaces only; the Gateway's traffic (data plane and health checks
+# alike) arrives from the Google Front End ranges, which no
+# namespaceSelector matches. Policies are additive, so this opens exactly
+# the web port to exactly those ranges.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: flux-web-gfe
+  namespace: flux-system
+spec:
+  policyTypes:
+    - Ingress
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: flux-operator
+      app.kubernetes.io/instance: flux-operator
+  ingress:
+    - from:
+        - ipBlock:
+            cidr: 130.211.0.0/22
+        - ipBlock:
+            cidr: 35.191.0.0/16
+      ports:
+        - protocol: TCP
+          port: 9080
