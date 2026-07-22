@@ -23,9 +23,11 @@
 # — NOT the legacy .sig tag, which is all the default Cosign verification
 # type reads (--use-signing-config=false in the publish pipelines selects
 # the v2 trust services, it does not change the storage format). The tlog
-# entry travels inside the bundle, so no rekor endpoint is configured here;
-# kyverno checks it against the sigstore TUF trusted root. Flux verifies
-# the same bundles independently (source-controller >= v1.8 / Flux 2.8).
+# entry travels inside the bundle and kyverno checks it offline against the
+# sigstore TUF trusted root; the rekor.url on each keyless entry exists only
+# because kyverno's CRD validation demands rekor-or-roots on every keyless
+# attestor regardless of type. Flux verifies the same bundles independently
+# (source-controller >= v1.8 / Flux 2.8).
 #
 # failureAction starts as Audit via the cluster var default: soak a fresh
 # cluster, audit the PolicyReports, then flip KYVERNO_FAILURE_ACTION=Enforce
@@ -71,6 +73,9 @@ spec:
                 - keyless:
                     subjectRegExp: "${SIGNED_IDENTITY_IMAGES}"
                     issuerRegExp: "${SIGNED_IDENTITY_ISSUER}"
+                    # satisfies CRD validation only — see header comment
+                    rekor:
+                      url: https://rekor.sigstore.dev
         - imageReferences:
             - "ghcr.io/bitwise-media-group/patchy/*"
           type: SigstoreBundle
@@ -93,3 +98,6 @@ spec:
                     # this trust to releases cut FROM the patchy repo
                     additionalExtensions:
                       githubWorkflowRepository: bitwise-media-group/patchy
+                    # satisfies CRD validation only — see header comment
+                    rekor:
+                      url: https://rekor.sigstore.dev
