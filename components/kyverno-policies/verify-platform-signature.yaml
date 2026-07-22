@@ -16,10 +16,16 @@
 # Fulcio identity on that entry is the REUSABLE workflow's
 # job_workflow_ref (github-workflows, not patchy — unlike the chart, which
 # patchy's own helm.yaml signs), pinned to releases cut from the patchy
-# repo via the githubWorkflowRepository extension. Patchy signs with
-# cosign's legacy format (--use-signing-config=false, .sig tags + Rekor),
-# the same as the platform pipeline, because that is the only format this
-# kyverno's Cosign verification reads.
+# repo via the githubWorkflowRepository extension.
+#
+# type: SigstoreBundle on both rules: the platform signs with cosign v3,
+# whose signatures are sigstore bundles attached via the OCI referrers API
+# — NOT the legacy .sig tag, which is all the default Cosign verification
+# type reads (--use-signing-config=false in the publish pipelines selects
+# the v2 trust services, it does not change the storage format). The tlog
+# entry travels inside the bundle, so no rekor endpoint is configured here;
+# kyverno checks it against the sigstore TUF trusted root. Flux verifies
+# the same bundles independently (source-controller >= v1.8 / Flux 2.8).
 #
 # failureAction starts as Audit via the cluster var default: soak a fresh
 # cluster, audit the PolicyReports, then flip KYVERNO_FAILURE_ACTION=Enforce
@@ -48,6 +54,7 @@ spec:
             - "registry.k8s.io/*"
             # verified by the dedicated patchy entry below
             - "ghcr.io/bitwise-media-group/patchy/*"
+          type: SigstoreBundle
           failureAction: "${KYVERNO_FAILURE_ACTION:=Audit}"
           required: true
           # Digest rewriting stays off: kyverno rejects mutateDigest under an
@@ -64,11 +71,9 @@ spec:
                 - keyless:
                     subjectRegExp: "${SIGNED_IDENTITY_IMAGES}"
                     issuerRegExp: "${SIGNED_IDENTITY_ISSUER}"
-                    rekor:
-                      # public Rekor — the platform signs with tlog upload on
-                      url: https://rekor.sigstore.dev
         - imageReferences:
             - "ghcr.io/bitwise-media-group/patchy/*"
+          type: SigstoreBundle
           failureAction: "${KYVERNO_FAILURE_ACTION:=Audit}"
           required: true
           # off for the same Audit-compatibility reason as the entry above
@@ -88,5 +93,3 @@ spec:
                     # this trust to releases cut FROM the patchy repo
                     additionalExtensions:
                       githubWorkflowRepository: bitwise-media-group/patchy
-                    rekor:
-                      url: https://rekor.sigstore.dev

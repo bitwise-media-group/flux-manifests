@@ -74,7 +74,11 @@ jobs:
             --output json | jq -r .digest)"
 
           # keyless: the Fulcio certificate subject is exactly this workflow at
-          # this tag — what every cluster's FluxInstance verify patch matches
+          # this tag — what every cluster's FluxInstance verify patch matches.
+          # cosign v3 stores the signature as a sigstore bundle via the OCI
+          # referrers API; flux >= 2.8 and kyverno's SigstoreBundle rules read
+          # that format. --use-signing-config=false only pins the v2 trust
+          # services (Fulcio + Rekor v1) — it does not change the format.
           cosign sign --yes --use-signing-config=false \
             "${PLATFORM_REGISTRY}/flux-manifests@$digest"
 
