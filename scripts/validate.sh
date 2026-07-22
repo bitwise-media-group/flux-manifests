@@ -21,9 +21,11 @@ command -v yq >/dev/null || { echo "yq not found" >&2; exit 1; }
 # Substitute dollar-brace vars the way kustomize-controller postBuild does:
 # structurally, into parsed string values (textual envsubst would break
 # quoting of values like ">=1.18.0 <2.0.0"). yq re-quotes scalars correctly on
-# output.
+# output. kustomize-controller only substitutes the braced ${VAR} form, but
+# yq's envsubst also eats bare $VAR (dex's $-refs, Go template $variables) --
+# shield those behind a sentinel so the render matches the cluster.
 substitute() { # substitute <in-file> <out-file>
-  yq ea '(.. | select(tag == "!!str")) |= envsubst' "$1" > "$2"
+  yq ea '(.. | select(tag == "!!str")) |= (sub("\$([^{])"; "@BARE_DOLLAR@${1}") | envsubst | sub("@BARE_DOLLAR@"; "$$"))' "$1" > "$2"
 }
 
 # Load the sample cluster-vars into the environment for envsubst.

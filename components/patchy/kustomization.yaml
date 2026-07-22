@@ -9,3 +9,4 @@ resources:
   - health-check.yaml
   - input-provider.yaml
   - resourceset.yaml
+  - resourceset-secrets.yaml

@@ -130,18 +130,30 @@ spec:
             # machines. OIDC sign-in through the platform dex (the synced
             # patchy-status-auth Secret carries config.yaml plus the
             # client-secret key its clientSecretFile points at) opens the
-            # findings board.
+            # findings board. Without dex in STACK_COMPONENTS the secret is
+            # never synced (resourceset-secrets.yaml) and an empty
+            # existingSecret drops the server to its rollups-only posture:
+            # public statistics, no findings, no sign-in.
             auth:
-              existingSecret: patchy-status-auth
+              existingSecret: << ternary "patchy-status-auth" "" (has "dex" (splitList "," "${STACK_COMPONENTS:=dex,flux-web,patchy}")) | quote >>
             host: status.${PATCHY_DOMAIN}
             httpRoute:
-              enabled: true
+              # the human edge only exists when dex can authenticate humans;
+              # a dex-less cluster keeps the status server in-cluster only
+              # (kubectl port-forward to reach). The webhook route above is
+              # unaffected -- machines authenticate by HMAC, not SSO.
+              enabled: << has "dex" (splitList "," "${STACK_COMPONENTS:=dex,flux-web,patchy}") >>
               parentRefs:
                 - name: platform
                   namespace: gateway
                   sectionName: https-status
             nodeSelector:
               role: system
+            rbac:
+              # render the chart's user-tier ClusterRoles (findings-viewer/
+              # approver/operator); the rbac component binds the Google
+              # Groups from RBAC_GROUP_* onto them
+              userRoles: true
         # The chart has no extraVolumes knob, so the mocked CMDB is mounted
         # by patching the rendered context-controller Deployment.
         postRenderers:

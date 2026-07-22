@@ -3,7 +3,4 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
-  - namespace.yaml
-  - input-provider.yaml
   - resourceset.yaml
-  - resourceset-secrets.yaml

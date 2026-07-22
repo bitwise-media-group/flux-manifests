@@ -10,6 +10,11 @@
 # assertion with no key file. The namespace/name/annotation triple below is
 # the contract with local.dex_workload_identities in dex.tf -- change them
 # together or the identity binding silently breaks.
+#
+# Template form rather than a plain resources list: each relying party's
+# staticClient registers only when its component is elected in
+# STACK_COMPONENTS (the client secret rides in via resourceset-secrets.yaml
+# under the same guard).
 apiVersion: fluxcd.controlplane.io/v1
 kind: ResourceSet
 metadata:
@@ -19,101 +24,114 @@ spec:
   inputsFrom:
     - kind: ResourceSetInputProvider
       name: dex
-  resources:
-    - apiVersion: source.toolkit.fluxcd.io/v1
-      kind: OCIRepository
-      metadata:
+  resourcesTemplate: |
+    << $elected := splitList "," "${STACK_COMPONENTS:=dex,flux-web,patchy}" >>
+    ---
+    apiVersion: source.toolkit.fluxcd.io/v1
+    kind: OCIRepository
+    metadata:
+      name: dex
+      namespace: dex
+    spec:
+      interval: 1h
+      url: oci://${PLATFORM_REGISTRY}/charts/dex
+      provider: "${OCI_PROVIDER:=gcp}"
+      ref:
+        tag: << inputs.tag >>
+      verify:
+        provider: cosign
+        matchOIDCIdentity:
+          # single-quoted: the values are regexes whose backslashes a
+          # double-quoted scalar would mangle when the rendered template
+          # text is parsed
+          - issuer: '${SIGNED_IDENTITY_ISSUER}'
+            subject: '${SIGNED_IDENTITY_CHARTS}'
+    ---
+    apiVersion: helm.toolkit.fluxcd.io/v2
+    kind: HelmRelease
+    metadata:
+      name: dex
+      namespace: dex
+    spec:
+      interval: 30m
+      timeout: 5m
+      chartRef:
+        kind: OCIRepository
         name: dex
         namespace: dex
-      spec:
-        interval: 1h
-        url: oci://${PLATFORM_REGISTRY}/charts/dex
-        provider: "${OCI_PROVIDER:=gcp}"
-        ref:
-          tag: << inputs.tag >>
-        verify:
-          provider: cosign
-          matchOIDCIdentity:
-            - issuer: "${SIGNED_IDENTITY_ISSUER}"
-              subject: "${SIGNED_IDENTITY_CHARTS}"
-    - apiVersion: helm.toolkit.fluxcd.io/v2
-      kind: HelmRelease
-      metadata:
-        name: dex
-        namespace: dex
-      spec:
-        interval: 30m
-        timeout: 5m
-        chartRef:
-          kind: OCIRepository
+      values:
+        image:
+          repository: ${CONTAINER_REGISTRY}/images/ghcr.io/dexidp/dex
+        # The terraform Workload Identity binding expects dex/dex annotated
+        # with the directory SA -- pin the name so the contract holds.
+        serviceAccount:
           name: dex
-          namespace: dex
-        values:
-          image:
-            repository: ${CONTAINER_REGISTRY}/images/ghcr.io/dexidp/dex
-          # The terraform Workload Identity binding expects dex/dex annotated
-          # with the directory SA -- pin the name so the contract holds.
-          serviceAccount:
-            name: dex
-            annotations:
-              iam.gke.io/gcp-service-account: ${DEX_DIRECTORY_SA}
-          # Credentials from the synced dex-env Secret (secret-sync.yaml).
-          # dex expands $VAR in its config; $-refs below are deliberately
-          # brace-less so flux postBuild substitution never touches them.
-          envFrom:
-            - secretRef:
-                name: dex-env
-          config:
-            # The public URL, baked into every token's iss claim; served by
-            # the platform Gateway via the httpRoute below.
-            issuer: https://dex.${PATCHY_DOMAIN}
-            # CRD-backed storage in the release namespace: no database to
-            # run, and state survives pod restarts. dex creates its CRDs at
-            # startup via the chart's RBAC.
-            storage:
-              type: kubernetes
+          annotations:
+            iam.gke.io/gcp-service-account: ${DEX_DIRECTORY_SA}
+        # Credentials from the synced dex-env Secret
+        # (resourceset-secrets.yaml). dex expands $VAR in its config;
+        # $-refs below are deliberately brace-less so flux postBuild
+        # substitution never touches them.
+        envFrom:
+          - secretRef:
+              name: dex-env
+        config:
+          # The public URL, baked into every token's iss claim; served by
+          # the platform Gateway via the httpRoute below.
+          issuer: https://dex.${PATCHY_DOMAIN}
+          # CRD-backed storage in the release namespace: no database to
+          # run, and state survives pod restarts. dex creates its CRDs at
+          # startup via the chart's RBAC.
+          storage:
+            type: kubernetes
+            config:
+              inCluster: true
+          oauth2:
+            # The relying parties are first-party platform UIs; a consent
+            # screen between two internal pages is pure friction.
+            skipApprovalScreen: true
+          connectors:
+            - type: google
+              id: google
+              name: Google
               config:
-                inCluster: true
-            oauth2:
-              # Both relying parties are first-party platform UIs; a consent
-              # screen between two internal pages is pure friction.
-              skipApprovalScreen: true
-            connectors:
-              - type: google
-                id: google
-                name: Google
-                config:
-                  clientID: $GOOGLE_CLIENT_ID
-                  clientSecret: $GOOGLE_CLIENT_SECRET
-                  redirectURI: https://dex.${PATCHY_DOMAIN}/callback
-                  # Directory reads (group claims) impersonate this Workspace
-                  # admin via the annotated SA's domain-wide delegation --
-                  # keyless, see dex.tf. No serviceAccountFilePath: dex
-                  # resolves the SA from the metadata server.
-                  adminEmail: $GOOGLE_ADMIN_EMAIL
-                  fetchTransitiveGroupMembership: true
-            # One static client per relying party. The secrets are the
-            # terraform-generated dex-client-* containers, synced here as env
-            # vars and into each consumer's namespace -- both sides of every
-            # pair read the same Secret Manager version.
-            staticClients:
-              - id: flux-web
-                name: Flux Status
-                secretEnv: DEX_CLIENT_FLUX_WEB
-                redirectURIs:
-                  - https://flux.${PATCHY_DOMAIN}/oauth2/callback
-              - id: patchy-status
-                name: Patchy Status
-                secretEnv: DEX_CLIENT_PATCHY_STATUS
-                redirectURIs:
-                  - https://status.${PATCHY_DOMAIN}/oauth2/callback
-          httpRoute:
-            enabled: true
-            parentRefs:
-              - name: platform
-                namespace: gateway
-                sectionName: https-dex
-            hostnames:
-              - dex.${PATCHY_DOMAIN}
-          nodeSelector:
-            role: system
+                clientID: $GOOGLE_CLIENT_ID
+                clientSecret: $GOOGLE_CLIENT_SECRET
+                redirectURI: https://dex.${PATCHY_DOMAIN}/callback
+                # Directory reads (group claims) impersonate this Workspace
+                # admin via the annotated SA's domain-wide delegation --
+                # keyless, see dex.tf. No serviceAccountFilePath: dex
+                # resolves the SA from the metadata server.
+                adminEmail: $GOOGLE_ADMIN_EMAIL
+                fetchTransitiveGroupMembership: true
+          << if or (has "flux-web" $elected) (has "patchy" $elected) >>
+          # One static client per ELECTED relying party. The secrets are
+          # the terraform-generated dex-client-* containers, synced here as
+          # env vars and into each consumer's namespace -- both sides of
+          # every pair read the same Secret Manager version.
+          staticClients:
+            << if has "flux-web" $elected >>
+            - id: flux-web
+              name: Flux Status
+              secretEnv: DEX_CLIENT_FLUX_WEB
+              redirectURIs:
+                - https://flux.${PATCHY_DOMAIN}/oauth2/callback
+            << end >>
+            << if has "patchy" $elected >>
+            - id: patchy-status
+              name: Patchy Status
+              secretEnv: DEX_CLIENT_PATCHY_STATUS
+              redirectURIs:
+                - https://status.${PATCHY_DOMAIN}/oauth2/callback
+            << end >>
+          << end >>
+        httpRoute:
+          enabled: true
+          parentRefs:
+            - name: platform
+              namespace: gateway
+              sectionName: https-dex
+          hostnames:
+            - dex.${PATCHY_DOMAIN}
+        nodeSelector:
+          role: system
