@@ -25,6 +25,7 @@ command -v yq >/dev/null || { echo "yq not found" >&2; exit 1; }
 # yq's envsubst also eats bare $VAR (dex's $-refs, Go template $variables) --
 # shield those behind a sentinel so the render matches the cluster.
 substitute() { # substitute <in-file> <out-file>
+  # shellcheck disable=SC2016 # ${1} and $$ are yq syntax; single quotes are deliberate
   yq ea '(.. | select(tag == "!!str")) |= (sub("\$([^{])"; "@BARE_DOLLAR@${1}") | envsubst | sub("@BARE_DOLLAR@"; "$$"))' "$1" > "$2"
 }
 
