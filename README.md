@@ -64,7 +64,8 @@ Kustomization (`${VAR}`, `${VAR:=default}`); optional surfaces use the empty-str
 | `DEX_DIRECTORY_SA`       | `dex-directory@….iam.gserviceaccount.com`          | dex KSA annotation (typed `sso.directory_sa`; empty when sso off)                    |
 | `RBAC_GROUP_VIEWERS`     | `gcp-x-patchy-viewers@bitwisemedia.co.uk`          | rbac — cluster-wide `view` + patchy findings read                                    |
 | `RBAC_GROUP_DEVELOPERS`  | `gcp-x-patchy-developers@bitwisemedia.co.uk`       | rbac — `patchy-findings-operator` in the patchy namespace                            |
-| `RBAC_GROUP_DEVOPS`      | `gcp-x-patchy-devops@bitwisemedia.co.uk`           | rbac — cluster-wide `cluster-admin`                                                  |
+| `RBAC_GROUP_DEVOPS`      | `gcp-x-patchy-devops@bitwisemedia.co.uk`           | rbac — cluster-wide `edit`                                                           |
+| `RBAC_GROUP_ADMINS`      | `gcp-x-patchy-admins@bitwisemedia.co.uk`           | rbac — cluster-wide `cluster-admin` + `patchy-findings-admin` (demo tooling)         |
 | `KYVERNO_FAILURE_ACTION` | default `Audit`                                    | kyverno policy — flip to `Enforce` after soaking a fresh cluster                     |
 | `*_SEMVER`               | `>=3.8.0 <4.0.0`                                   | per-component chart range overrides                                                  |
 

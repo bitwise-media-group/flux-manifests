@@ -131,7 +131,7 @@ spec:
               role: system
             rbac:
               # render the chart's user-tier ClusterRoles (findings-viewer/
-              # approver/operator); the rbac component binds the Google
+              # approver/operator/admin); the rbac component binds the Google
               # Groups from RBAC_GROUP_* onto them
               userRoles: true
         # The chart has no extraVolumes knob, so the mocked CMDB is mounted

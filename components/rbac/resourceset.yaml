@@ -22,18 +22,55 @@ spec:
     - viewers: "${RBAC_GROUP_VIEWERS}"
       developers: "${RBAC_GROUP_DEVELOPERS}"
       devops: "${RBAC_GROUP_DEVOPS}"
+      admins: "${RBAC_GROUP_ADMINS}"
   resourcesTemplate: |
-    << if inputs.devops >>
+    << if inputs.admins >>
     ---
-    # devops: everything, everywhere — flux objects included.
+    # admins: everything, everywhere — flux objects included.
     apiVersion: rbac.authorization.k8s.io/v1
     kind: ClusterRoleBinding
     metadata:
-      name: devops-cluster-admin
+      name: admins-cluster-admin
     roleRef:
       apiGroup: rbac.authorization.k8s.io
       kind: ClusterRole
       name: cluster-admin
+    subjects:
+      - kind: Group
+        apiGroup: rbac.authorization.k8s.io
+        name: << inputs.admins >>
+    ---
+    # admins on the status page: the operator surface plus the demo-tooling
+    # verbs (replay, reset). cluster-admin above already passes the server's
+    # SubjectAccessReviews; this keeps the status-page grant explicit and
+    # intact if the cluster-wide role is ever narrowed.
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: RoleBinding
+    metadata:
+      name: admins-findings-admin
+      namespace: patchy
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: patchy-findings-admin
+    subjects:
+      - kind: Group
+        apiGroup: rbac.authorization.k8s.io
+        name: << inputs.admins >>
+    << end >>
+    << if inputs.devops >>
+    ---
+    # devops: cluster-wide write on namespaced objects (the built-in edit
+    # role, flux objects included via its aggregation) — RBAC, CRDs and the
+    # rest of cluster-scoped administration stay with admins.
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRoleBinding
+    metadata:
+      name: devops-cluster-edit
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: edit
     subjects:
       - kind: Group
         apiGroup: rbac.authorization.k8s.io
