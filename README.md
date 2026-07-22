@@ -2,8 +2,8 @@
 
 The GitOps stack every patchy-platform GKE cluster syncs: one consistent `stack/` packaged as a **keyless-cosign-signed
 OCI artifact** in the platform Artifact Registry, consumed by each cluster's FluxInstance on a channel tag (`edge`,
-`staging` or `stable`). Nothing is edited per cluster — all variation arrives through the `cluster-vars` ConfigMap the terraform
-module publishes.
+`staging` or `stable`). Nothing is edited per cluster — all variation arrives through the `cluster-vars` ConfigMap the
+terraform module publishes.
 
 ## What the stack deploys
 
@@ -26,35 +26,47 @@ registry) plus a ResourceSet templating an OCIRepository (**keyless verify** via
 A flux-containers publish therefore rolls out on the next reconcile — bounded by each component's semver range,
 overridable per cluster via `*_SEMVER` cluster vars.
 
+On top of the always-on core above sits an **optional tier — `dex`, `flux-web`, `patchy` — elected by short name** via
+the `STACK_COMPONENTS` cluster var (comma-separated; unset elects everything, so the default cluster is unchanged; the
+terraform module includes `dex` exactly when its `sso` toggle is on). The `optional` Kustomization templates the tier's
+Flux Kustomizations from the election (`components/optional`), and the same var reaches inside components for the
+cross-wiring: dex only registers and syncs OAuth2 client secrets for **elected** relying parties, `flux-web` deploys
+only when dex is also elected (it is nothing but the flux UI's SSO wiring — without it the operator's web UI stays
+reachable via port-forward), and on a dex-less cluster patchy's status page drops to its rollups-only posture with no
+human-facing HTTPRoute (port-forward to reach; the webhook edge is unaffected — machines authenticate by HMAC, not SSO).
+
 ## The terraform ↔ flux contract (cluster-vars)
 
 Published by `terraform-google-gke-flux` into the `cluster-vars` ConfigMap (flux-system) and substituted into every
 Kustomization (`${VAR}`, `${VAR:=default}`); optional surfaces use the empty-string convention.
 
-| key                      | example                                            | consumed by                                                      |
-| ------------------------ | -------------------------------------------------- | ---------------------------------------------------------------- |
-| `CLUSTER_NAME`           | `patchy-x`                                         | external-dns (txtOwnerId)                                        |
-| `GCP_PROJECT`            | `x-patchy-app-ab12`                                | external-dns, issuers                                            |
-| `GCP_PROJECT_NUMBER`     | `123456789012`                                     | (published for component use)                                    |
-| `GCP_REGION`             | `us-central1`                                      | (published for component use)                                    |
-| `PLATFORM_REGISTRY`      | `us-central1-docker.pkg.dev/…/platform`            | every RSIP + OCIRepository                                       |
-| `CONTAINER_REGISTRY`     | same                                               | every HelmRelease image value (`images/<upstream-path>`)         |
-| `OCI_PROVIDER`           | default `gcp`                                      | OCIRepository registry auth                                      |
-| `SIGNED_IDENTITY_ISSUER` | `^https://token\.actions\.githubusercontent\.com$` | verify blocks + kyverno policy                                   |
-| `SIGNED_IDENTITY_CHARTS` | flux-containers publish@main regexp                | chart OCIRepository verify                                       |
-| `SIGNED_IDENTITY_IMAGES` | flux-containers publish@main regexp                | kyverno policy                                                   |
-| `DNS_ZONE_NAME`          | `patchy-bitwisemedia-co-uk`                        | external-dns zone filter                                         |
-| `DNS_DOMAIN`             | `patchy.bitwisemedia.co.uk`                        | external-dns domain filter                                       |
-| `PATCHY_DOMAIN`          | `patchy.bitwisemedia.co.uk`                        | gateway listener + certificate                                   |
-| `ACME_EMAIL`             | `you@bitwisemedia.co.uk`                           | issuers                                                          |
-| `GATEWAY_ADDRESS_NAME`   | `patchy-x-gateway`                                 | gateway (NamedAddress)                                           |
-| `GATEWAY_IP`             | `203.0.113.10`                                     | (informational)                                                  |
-| `OTEL_PROJECT`           | `x-patchy-app-ab12`                                | otel-collector exporters                                         |
-| `RBAC_GROUP_VIEWERS`     | `gcp-x-patchy-viewers@bitwisemedia.co.uk`          | RBAC bindings (read-only subjects)                               |
-| `RBAC_GROUP_DEVELOPERS`  | `gcp-x-patchy-developers@bitwisemedia.co.uk`       | RBAC bindings (developer subjects)                               |
-| `RBAC_GROUP_DEVOPS`      | `gcp-x-patchy-devops@bitwisemedia.co.uk`           | RBAC bindings (devops subjects)                                  |
-| `KYVERNO_FAILURE_ACTION` | default `Audit`                                    | kyverno policy — flip to `Enforce` after soaking a fresh cluster |
-| `*_SEMVER`               | `>=3.8.0 <4.0.0`                                   | per-component chart range overrides                              |
+| key                      | example                                            | consumed by                                                                          |
+| ------------------------ | -------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `CLUSTER_NAME`           | `patchy-x`                                         | external-dns (txtOwnerId)                                                            |
+| `GCP_PROJECT`            | `x-patchy-app-ab12`                                | external-dns, issuers                                                                |
+| `GCP_PROJECT_NUMBER`     | `123456789012`                                     | (published for component use)                                                        |
+| `GCP_REGION`             | `us-central1`                                      | (published for component use)                                                        |
+| `PLATFORM_REGISTRY`      | `us-central1-docker.pkg.dev/…/platform`            | every RSIP + OCIRepository                                                           |
+| `CONTAINER_REGISTRY`     | same                                               | every HelmRelease image value (`images/<upstream-path>`)                             |
+| `OCI_PROVIDER`           | default `gcp`                                      | OCIRepository registry auth                                                          |
+| `SIGNED_IDENTITY_ISSUER` | `^https://token\.actions\.githubusercontent\.com$` | verify blocks + kyverno policy                                                       |
+| `SIGNED_IDENTITY_CHARTS` | flux-containers publish@main regexp                | chart OCIRepository verify                                                           |
+| `SIGNED_IDENTITY_IMAGES` | flux-containers publish@main regexp                | kyverno policy                                                                       |
+| `DNS_ZONE_NAME`          | `patchy-bitwisemedia-co-uk`                        | external-dns zone filter                                                             |
+| `DNS_DOMAIN`             | `patchy.bitwisemedia.co.uk`                        | external-dns domain filter                                                           |
+| `PATCHY_DOMAIN`          | `patchy.bitwisemedia.co.uk`                        | gateway listener + certificate                                                       |
+| `ACME_EMAIL`             | `you@bitwisemedia.co.uk`                           | issuers                                                                              |
+| `GATEWAY_ADDRESS_NAME`   | `patchy-x-gateway`                                 | gateway (NamedAddress)                                                               |
+| `GATEWAY_IP`             | `203.0.113.10`                                     | (informational)                                                                      |
+| `OTEL_PROJECT`           | `x-patchy-app-ab12`                                | otel-collector exporters                                                             |
+| `SECRET_PREFIX`          | `patchy-x-` (empty for unprefixed containers)      | every Secret Manager resourceName — distinct per-cluster secrets in a shared project |
+| `STACK_COMPONENTS`       | `dex,patchy` (unset elects everything)             | optional-tier election — see below                                                   |
+| `DEX_DIRECTORY_SA`       | `dex-directory@….iam.gserviceaccount.com`          | dex KSA annotation (typed `sso.directory_sa`; empty when sso off)                    |
+| `RBAC_GROUP_VIEWERS`     | `gcp-x-patchy-viewers@bitwisemedia.co.uk`          | rbac — cluster-wide `view` + patchy findings read                                    |
+| `RBAC_GROUP_DEVELOPERS`  | `gcp-x-patchy-developers@bitwisemedia.co.uk`       | rbac — `patchy-findings-operator` in the patchy namespace                            |
+| `RBAC_GROUP_DEVOPS`      | `gcp-x-patchy-devops@bitwisemedia.co.uk`           | rbac — cluster-wide `cluster-admin`                                                  |
+| `KYVERNO_FAILURE_ACTION` | default `Audit`                                    | kyverno policy — flip to `Enforce` after soaking a fresh cluster                     |
+| `*_SEMVER`               | `>=3.8.0 <4.0.0`                                   | per-component chart range overrides                                                  |
 
 Workload identity contract (namespace/serviceaccount names terraform grants against — pinned in the HelmRelease values
 here): `external-dns/external-dns`, `cert-manager/cert-manager`, `otel-collector/otel-collector`,
