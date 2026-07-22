@@ -1,0 +1,97 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+
+# Google Groups -> Kubernetes RBAC. The subject groups arrive as
+# RBAC_GROUP_* cluster vars (empty string when the role is unbound or
+# Google Groups RBAC is off — see terraform-google-gke-flux var.rbac);
+# kustomize can't conditionally emit resources, so a ResourceSet template
+# guards each binding: an empty group renders nothing rather than an
+# invalid empty subject.
+#
+# The same group emails satisfy both authenticators: the GKE control plane
+# (kubectl, via gke-security-groups membership) and the patchy status
+# server's SubjectAccessReviews (groups claim from dex, which resolves
+# transitive Workspace membership).
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSet
+metadata:
+  name: rbac
+  namespace: flux-system
+spec:
+  inputs:
+    - viewers: "${RBAC_GROUP_VIEWERS}"
+      developers: "${RBAC_GROUP_DEVELOPERS}"
+      devops: "${RBAC_GROUP_DEVOPS}"
+  resourcesTemplate: |
+    << if inputs.devops >>
+    ---
+    # devops: everything, everywhere — flux objects included.
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRoleBinding
+    metadata:
+      name: devops-cluster-admin
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: cluster-admin
+    subjects:
+      - kind: Group
+        apiGroup: rbac.authorization.k8s.io
+        name: << inputs.devops >>
+    << end >>
+    << if inputs.viewers >>
+    ---
+    # viewers: cluster-wide read-only. The built-in view role aggregates
+    # flux's flux-view rules; CRDs without aggregation labels (patchy's
+    # among them) stay invisible — the findings read grant below fills
+    # that gap where it matters.
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRoleBinding
+    metadata:
+      name: viewers-cluster-view
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: view
+    subjects:
+      - kind: Group
+        apiGroup: rbac.authorization.k8s.io
+        name: << inputs.viewers >>
+    ---
+    # viewers on the status page: native get on findings opens the
+    # dashboard read gate, nothing grants the action verbs.
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: RoleBinding
+    metadata:
+      name: viewers-findings-viewer
+      namespace: patchy
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: patchy-findings-viewer
+    subjects:
+      - kind: Group
+        apiGroup: rbac.authorization.k8s.io
+        name: << inputs.viewers >>
+    << end >>
+    << if inputs.developers >>
+    ---
+    # developers: the full status-page surface in the patchy namespace —
+    # get/list on findings + findingrollups plus the custom verbs
+    # (approve, suspend, resume) the server's SubjectAccessReviews check.
+    # The role is chart-rendered (statusServer.rbac.userRoles in the
+    # patchy HelmRelease) so the verb grammar tracks the app.
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: RoleBinding
+    metadata:
+      name: developers-findings-operator
+      namespace: patchy
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: patchy-findings-operator
+    subjects:
+      - kind: Group
+        apiGroup: rbac.authorization.k8s.io
+        name: << inputs.developers >>
+    << end >>

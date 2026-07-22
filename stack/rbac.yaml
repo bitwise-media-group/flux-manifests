@@ -1,0 +1,24 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: rbac
+  namespace: flux-system
+spec:
+  interval: 30m
+  retryInterval: 2m
+  timeout: 5m
+  wait: true
+  prune: true
+  # Deliberately no dependsOn: devops/viewer access must never hinge on
+  # workload health, and RBAC tolerates dangling roleRefs — the developer
+  # binding simply activates once the patchy chart renders its user roles.
+  sourceRef:
+    kind: OCIRepository
+    name: flux-system
+  path: ./components/rbac
+  postBuild:
+    substituteFrom:
+      - kind: ConfigMap
+        name: cluster-vars
