@@ -1,2 +1,6 @@
 # validate.sh working tree
 .build/
+
+# claude code
+/.claude/**
+!/.claude/settings.json
