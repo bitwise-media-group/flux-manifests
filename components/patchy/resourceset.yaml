@@ -1,10 +1,15 @@
 # Copyright 2026 BitWise Media Group Ltd
 # SPDX-License-Identifier: MIT
 
-# Patchy itself: chart pulled straight from ghcr (generic provider,
+# Patchy itself: two charts pulled straight from ghcr (generic provider,
 # anonymous) and cosign keyless-verified against the patchy repo's own
 # publish identity -- unlike the platform components, which ride the
-# flux-containers mirror. The two Secrets it consumes (patchy-github,
+# flux-containers mirror. The patchy chart carries the CRDs and controllers;
+# patchy-config carries the Integration/Forge CRs, split into its own release
+# (upstream 0.5.0) because Helm validates every manifest against the API
+# server before applying anything -- a single release can never install a CRD
+# and a CR of that CRD on first install. Both charts version in lockstep, so
+# one input provider tag drives both. The two Secrets consumed (patchy-github,
 # patchy-anthropic) are synced in secret-sync.yaml; the mocked CMDB rides in
 # via a postRenderer because the chart has no extraVolumes knob.
 apiVersion: fluxcd.controlplane.io/v1
@@ -71,31 +76,6 @@ spec:
             # to warn, which makes a healthy cluster look silent); revisit
             # once the demo settles
             logLevel: debug
-          # The pipeline switch-on: the controllers idle until an Integration
-          # (findings in, tracking issues out) and a Forge (repository
-          # clone/push) exist. Both reference the one synced patchy-github
-          # Secret (secret-sync.yaml) — a single GitHub App serves read and
-          # write.
-          integrations:
-            - name: github
-              spec:
-                provider: github
-                secretRef:
-                  name: patchy-github
-                interval: 10m
-                github:
-                  issues:
-                    enabled: true
-                    approveComment: /approve
-                  codeScanningAlerts:
-                    enabled: true
-          forges:
-            - name: github
-              spec:
-                provider: github
-                secretRef:
-                  name: patchy-github
-                interval: 10m
           agent:
             # terraform pre-creates patchy-agents; this component's
             # namespace.yaml carries the restricted Pod Security labels the
@@ -175,3 +155,65 @@ spec:
                         name: static-context
                         mountPath: /etc/patchy/context
                         readOnly: true
+    - apiVersion: source.toolkit.fluxcd.io/v1
+      kind: OCIRepository
+      metadata:
+        name: patchy-config
+        namespace: patchy
+      spec:
+        interval: 1h
+        url: oci://ghcr.io/bitwise-media-group/patchy/charts/patchy-config
+        provider: generic
+        ref:
+          # lockstep with the patchy chart: release-please stamps both charts
+          # with the app version, so the one provider tag fits both
+          tag: << inputs.tag >>
+        verify:
+          provider: cosign
+          matchOIDCIdentity:
+            # same helm.yaml workflow signs both charts
+            - issuer: "${SIGNED_IDENTITY_ISSUER}"
+              subject: '${SIGNED_IDENTITY_PATCHY:=^https://github\.com/bitwise-media-group/patchy/}'
+    - apiVersion: helm.toolkit.fluxcd.io/v2
+      kind: HelmRelease
+      metadata:
+        name: patchy-config
+        namespace: patchy
+      spec:
+        interval: 30m
+        timeout: 5m
+        # the CRs cannot even be validated until the patchy release has
+        # installed the CRDs; helm-controller holds this release until the
+        # patchy HelmRelease is Ready
+        dependsOn:
+          - name: patchy
+        chartRef:
+          kind: OCIRepository
+          name: patchy-config
+          namespace: patchy
+        values:
+          # The pipeline switch-on: the controllers idle until an Integration
+          # (findings in, tracking issues out) and a Forge (repository
+          # clone/push) exist. Both reference the one synced patchy-github
+          # Secret (secret-sync.yaml) — a single GitHub App serves read and
+          # write.
+          integrations:
+            - name: github
+              spec:
+                provider: github
+                secretRef:
+                  name: patchy-github
+                interval: 10m
+                github:
+                  issues:
+                    enabled: true
+                    approveComment: /approve
+                  codeScanningAlerts:
+                    enabled: true
+          forges:
+            - name: github
+              spec:
+                provider: github
+                secretRef:
+                  name: patchy-github
+                interval: 10m

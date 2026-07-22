@@ -13,13 +13,14 @@ spec:
   type: OCIArtifactTag
   url: oci://ghcr.io/bitwise-media-group/patchy/charts/patchy
   filter:
-    # chart tags are bare chart versions (e.g. 0.4.0); chart version tracks
+    # chart tags are bare chart versions (e.g. 0.5.0); chart version tracks
     # the app version 1:1 and the image tag defaults to v<version>. The
-    # floor is 0.4.0: the CRD-stack refactor renamed the chart's values
-    # surface (webhookController -> integrationController, statusServer,
-    # integrations/forges), so the values below hard-fail the strict schema
-    # of every 0.3.x chart.
+    # floor is 0.5.0: the Integration/Forge CRs split into the lockstep
+    # patchy-config chart (no such chart exists at earlier tags, and the
+    # 0.4.0 patchy chart cannot fresh-install its own CRs anyway); before
+    # that, the 0.4.0 CRD-stack refactor renamed the values surface, which
+    # hard-fails the strict schema of every 0.3.x chart.
     # Constraint order matters: kustomize drops the quotes, so the default
     # must not start with '>' or YAML reads it as a folded block scalar.
-    semver: "${PATCHY_SEMVER:=<1.0.0 >=0.4.0}"
+    semver: "${PATCHY_SEMVER:=<1.0.0 >=0.5.0}"
     limit: 1
