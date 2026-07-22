@@ -13,10 +13,12 @@ metadata:
 data:
   cmdb.yaml: |
     repos:
-      bitwisemedia/secure-code-game:
+      bitwisemedia/golang-scenarios:
         owners:
           - dmccaffery
           - irishredbeard
         attributes:
+          cloud: google
+          project: x-patchy-12ad
           environment: prod
           internet-facing: "true"
