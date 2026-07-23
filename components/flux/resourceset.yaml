@@ -140,7 +140,7 @@ spec:
                       value:
                         provider: cosign
                         matchOIDCIdentity:
-                          - issuer: "${SIGNED_IDENTITY_ISSUER}"
+                          - issuer: '${SIGNED_IDENTITY_ISSUER}'
                             subject: '${SIGNED_IDENTITY_MANIFESTS:=^https://github\.com/bitwise-media-group/flux-manifests/}'
                   target:
                     kind: OCIRepository
