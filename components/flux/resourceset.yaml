@@ -51,6 +51,11 @@ spec:
           name: flux-operator
           namespace: flux-system
         values:
+          # The chart default points at upstream ghcr.io; the operator must
+          # run the mirrored copy (flux-containers images.lock) so the
+          # platform-signature policy verifies it like every other component.
+          image:
+            repository: ${CONTAINER_REGISTRY}/images/ghcr.io/controlplaneio-fluxcd/flux-operator
           # Platform controllers stay on the always-on system pool, never on
           # auto-provisioned workload capacity.
           nodeSelector:
