@@ -1,0 +1,26 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  # "flux-system" names the stack sync itself (the FluxInstance-generated
+  # OCIRepository/Kustomization pair), so flux's own lifecycle component is
+  # plain "flux".
+  name: flux
+  namespace: flux-system
+spec:
+  interval: 30m
+  retryInterval: 2m
+  timeout: 5m
+  wait: true
+  prune: true
+  dependsOn:
+    - name: kyverno-policies
+  sourceRef:
+    kind: OCIRepository
+    name: flux-system
+  path: ./components/flux
+  postBuild:
+    substituteFrom:
+      - kind: ConfigMap
+        name: cluster-vars

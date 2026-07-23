@@ -3,6 +3,9 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
+  # flux managing flux: the operator + FluxInstance HelmReleases (adopted
+  # from the terraform bootstrap) follow the newest mirrored charts
+  - flux.yaml
   - kyverno.yaml
   - kyverno-policies.yaml
   - cert-manager.yaml

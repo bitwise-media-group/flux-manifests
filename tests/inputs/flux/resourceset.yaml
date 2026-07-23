@@ -1,0 +1,7 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+
+# Sample inputs standing in for the GARArtifactTag provider during validation.
+- id: "1"
+  tag: "0.55.0"
+  digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000"

@@ -1,0 +1,24 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSetInputProvider
+metadata:
+  name: flux
+  namespace: flux-system
+  annotations:
+    fluxcd.controlplane.io/reconcileEvery: 30m
+spec:
+  type: GARArtifactTag
+  # flux-operator and flux-instance are released together upstream on one
+  # version stream, so this single provider tag drives both charts'
+  # OCIRepositories (the patchy/patchy-config pattern).
+  url: oci://${PLATFORM_REGISTRY}/charts/flux-operator
+  filter:
+    # The floor is where stack-managed flux began; the ceiling caps below the
+    # next breaking major. Terraform never pins versions -- clusters follow
+    # the newest mirrored chart inside this range, so a flux-containers merge
+    # is the only act that upgrades flux estate-wide.
+    # Constraint order matters: kustomize drops the quotes, so the default
+    # must not start with '>' or YAML reads it as a folded block scalar.
+    semver: "${FLUX_SEMVER:=<1.0.0 >=0.55.0}"
+    limit: 1
