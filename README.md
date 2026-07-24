@@ -71,6 +71,8 @@ Kustomization (`${VAR}`, `${VAR:=default}`); optional surfaces use the empty-str
 | `RBAC_GROUP_DEVOPS`         | `gcp-x-patchy-devops@bitwisemedia.co.uk`           | rbac — cluster-wide `edit`                                                           |
 | `RBAC_GROUP_ADMINS`         | `gcp-x-patchy-admins@bitwisemedia.co.uk`           | rbac — cluster-wide `cluster-admin` + `patchy-findings-admin` (demo tooling)         |
 | `KYVERNO_FAILURE_ACTION`    | default `Audit`                                    | kyverno policy — flip to `Enforce` after soaking a fresh cluster                     |
+| `AGENT_EGRESS_POLICY`       | default `auto` (`none`/`cilium`/`gke`/`istio`)     | patchy — agent sandbox hostname-egress dialect; `auto` detects it per cluster        |
+| `AGENT_EGRESS_BROAD`        | default `auto` (`always` to soak)                  | patchy — keep the base "443 to anywhere" rule while a newly enabled dialect soaks    |
 | `*_SEMVER`                  | `>=3.8.0 <4.0.0`                                   | per-component chart range overrides                                                  |
 
 Workload identity contract (namespace/serviceaccount names terraform grants against — pinned in the HelmRelease values
@@ -100,8 +102,13 @@ scripts/validate.sh).
   reconcile this stack, and the first cluster apply needs a published (staging or stable) artifact.
 - **Kyverno starts in Audit**: the policy's failureAction defaults to Audit — review PolicyReports on a fresh cluster,
   then set `KYVERNO_FAILURE_ACTION=Enforce` via terraform's `flux.cluster_vars`.
-- **Patchy's Cilium FQDN egress toggle won't work here**: GKE Dataplane V2 rejects raw `CiliumNetworkPolicy`, and
-  `FQDNNetworkPolicy` needs GKE Enterprise. Deploy patchy with its baseline Kubernetes NetworkPolicy until that changes
-  — don't flip `agent.networkPolicy.cilium.enabled` expecting it to work.
+- **Patchy's agent egress dialect is detected, not configured**: `agent.networkPolicy.mode` is left at `auto`, so the
+  chart reads the cluster's own API surface on every helm-controller reconcile and renders `FQDNNetworkPolicy` on a
+  Dataplane V2 cluster that has FQDN policy enabled, `CiliumNetworkPolicy` on a real Cilium, and the base NetworkPolicy
+  alone otherwise. Do **not** set `cilium` on GKE: Dataplane V2 publishes the cilium.io CRDs but has not honoured
+  `CiliumNetworkPolicy` since 1.21.5-gke.1300 and rejects every L7 rule, so the policy would enforce nothing while
+  reading as protection. GKE's FQDN policy is **Preview**, needs the cluster created or updated with
+  `--enable-fqdn-network-policy` (terraform, not here), and resolves at most 50 addresses per name — until that flag is
+  on, detection correctly finds nothing and the sandbox rests on credential absence plus the base policy.
 - **Gateway `NamedAddress`**: verify the accepted `spec.addresses.type` on the cluster's GKE version at first apply
   (`networking.gke.io` annotations are the fallback).

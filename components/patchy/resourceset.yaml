@@ -81,6 +81,31 @@ spec:
             # namespace.yaml carries the restricted Pod Security labels the
             # chart would otherwise stamp
             createNamespace: false
+            networkPolicy:
+              # Which hostname-egress dialect the agent sandbox gets. `auto`
+              # (the default) resolves it from the cluster's own API surface
+              # on every helm-controller reconcile -- FQDNNetworkPolicy on a
+              # GKE Dataplane V2 cluster created with
+              # --enable-fqdn-network-policy, CiliumNetworkPolicy on a real
+              # Cilium (an EKS cluster running the Cilium CNI, when we get
+              # there), and the base NetworkPolicy alone on anything else.
+              # That is what lets one manifest serve both clouds.
+              #
+              # AGENT_EGRESS_POLICY pins it when detection is wrong or when a
+              # render must be deterministic: none, cilium, gke or istio.
+              # Terraform knows the answer for certain -- it creates the
+              # cluster -- so set it there in preference to trusting the
+              # probe, and note that auto sees nothing during an off-cluster
+              # `helm template`, which is why `make test` renders `none`.
+              mode: ${AGENT_EGRESS_POLICY:=auto}
+              # Whenever a dialect above is enforcing, the chart drops the
+              # base policy's "TCP 443 to anywhere" rule -- policies are
+              # additive, so leaving it would union with the allowlist and
+              # make it decorative. Set AGENT_EGRESS_BROAD=always to keep it
+              # while soaking a newly enabled mode: a mode that turns out not
+              # to enforce then fails open instead of blackholing every
+              # runner Job.
+              broadEgress: ${AGENT_EGRESS_BROAD:=auto}
           # The controllers are small always-on singletons -> the system
           # pool; agent Jobs carry no selector and ride node
           # auto-provisioning.
