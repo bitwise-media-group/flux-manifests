@@ -67,10 +67,6 @@ spec:
                 - name: platform
                   namespace: gateway
                   sectionName: https-integrations
-          anthropic:
-            # the synced Secret holds a `claude setup-token` OAuth token,
-            # not an API key
-            secretEnv: CLAUDE_CODE_OAUTH_TOKEN
           config:
             # demo visibility across every controller (the binaries default
             # to warn, which makes a healthy cluster look silent); revisit
@@ -81,6 +77,53 @@ spec:
             # namespace.yaml carries the restricted Pod Security labels the
             # chart would otherwise stamp
             createNamespace: false
+            # Which agent CLIs may run. The chart ships one runner per
+            # harness -- claude drives the Anthropic models, codex the OpenAI
+            # ones, and copilot brokers both vendors' -- each with its own
+            # image, credential Secret and egress allowlist; a Job runs
+            # whichever harness the model it was given resolves to.
+            #
+            # Electing a harness here is necessary but not sufficient: the
+            # controllers probe each enabled runner's credential Secret at
+            # startup and quietly drop the ones whose Secret is absent. That
+            # is what makes naming a harness safe before its credential
+            # lands -- and why the SecretSyncs that materialise those Secrets
+            # (resourceset-secrets.yaml) key off this same variable.
+            runners:
+              claude:
+                enabled: << has "claude" (splitList "," "${AGENT_HARNESSES:=claude}") >>
+                # the synced Secret holds a `claude setup-token` OAuth token,
+                # not an API key; the chart's own defaults already name the
+                # Secret and key (patchy-anthropic / api-key, secret-sync.yaml)
+                secretEnv: CLAUDE_CODE_OAUTH_TOKEN
+              codex:
+                # defaults: patchy-openai / api-key as OPENAI_API_KEY. The
+                # CODEX_API_KEY and CODEX_ACCESS_TOKEN channels (a ChatGPT
+                # workspace token rather than a platform API key) are only in
+                # the chart's schema after 0.7.0 -- raise the semver floor in
+                # input-provider.yaml before selecting one.
+                enabled: << has "codex" (splitList "," "${AGENT_HARNESSES:=claude}") >>
+              copilot:
+                # defaults: patchy-copilot / token as COPILOT_GITHUB_TOKEN.
+                # Alone among the three this credential is a GitHub token, so
+                # scope it to Copilot only -- fine-grained, no repository
+                # permissions. The runner passes --disable-builtin-mcps, so
+                # nothing in the session can spend it as a forge.
+                enabled: << has "copilot" (splitList "," "${AGENT_HARNESSES:=claude}") >>
+            # Derived from AGENT_HARNESSES rather than set beside it: the
+            # controllers refuse to start when an allowlisted model has no
+            # enabled harness, so an OpenAI model may only be offered once
+            # codex or copilot is elected. One variable cannot contradict
+            # itself; two could. Copilot appears on both sides because it
+            # brokers either vendor.
+            #
+            # The investigate/remediate stage defaults stay on the chart's
+            # anthropic/claude-sonnet-5, which claude and copilot both run --
+            # so a codex-ONLY election is the one combination that also has
+            # to override agent.investigate.model and agent.remediate.model,
+            # or the controllers refuse to start on a default they cannot
+            # resolve.
+            modelAllowlist: << $harnesses := splitList "," "${AGENT_HARNESSES:=claude}" >><< join "," (concat (ternary (list "anthropic/claude-sonnet-5" "anthropic/claude-opus-5") (list) (or (has "claude" $harnesses) (has "copilot" $harnesses))) (ternary (list "openai/gpt-5.3-codex" "openai/gpt-5.6-sol") (list) (or (has "codex" $harnesses) (has "copilot" $harnesses)))) | quote >>
             networkPolicy:
               # Which hostname-egress dialect the agent sandbox gets. `auto`
               # (the default) resolves it from the cluster's own API surface

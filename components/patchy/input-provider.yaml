@@ -13,14 +13,21 @@ spec:
   type: OCIArtifactTag
   url: oci://ghcr.io/bitwise-media-group/patchy/charts/patchy
   filter:
-    # chart tags are bare chart versions (e.g. 0.5.0); chart version tracks
+    # chart tags are bare chart versions (e.g. 0.7.0); chart version tracks
     # the app version 1:1 and the image tag defaults to v<version>. The
-    # floor is 0.5.0: the Integration/Forge CRs split into the lockstep
-    # patchy-config chart (no such chart exists at earlier tags, and the
-    # 0.4.0 patchy chart cannot fresh-install its own CRs anyway); before
-    # that, the 0.4.0 CRD-stack refactor renamed the values surface, which
-    # hard-fails the strict schema of every 0.3.x chart.
+    # floor is 0.7.0, and every step of the way down is a hard failure
+    # rather than a degraded render:
+    #   < 0.7.0  the model registry predates Opus 5 and the GPT-5.6 tiers,
+    #            so the ids agent.modelAllowlist derives are rejected at
+    #            controller startup.
+    #   < 0.5.7  no agent.runners map at all -- the per-harness split
+    #            replaced the single anthropic.* block, and the strict
+    #            values schema fails the release outright.
+    #   < 0.5.0  no patchy-config chart to carry the Integration/Forge CRs
+    #            (and the 0.4.0 patchy chart cannot fresh-install its own
+    #            CRs anyway); before that the 0.4.0 CRD-stack refactor
+    #            renamed the values surface wholesale.
     # Constraint order matters: kustomize drops the quotes, so the default
     # must not start with '>' or YAML reads it as a folded block scalar.
-    semver: "${PATCHY_SEMVER:=<1.0.0 >=0.5.0}"
+    semver: "${PATCHY_SEMVER:=<1.0.0 >=0.7.0}"
     limit: 1
