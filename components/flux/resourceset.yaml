@@ -150,6 +150,25 @@ spec:
                   target:
                     kind: OCIRepository
                     name: flux-system
+                # helm-controller appends the OCI artifact digest to the chart
+                # version as semver build metadata (0.56.0+<digest12>) for
+                # every chartRef OCIRepository, so a moved tag still triggers
+                # an upgrade. That synthetic version lands in the helm release
+                # storage, and terraform -- which shares this release by name
+                # (adoption, above) -- reads it back as the version to plan
+                # against, then fails to locate a chart tag that was never
+                # published. Nothing here needs the digest: every chart
+                # OCIRepository takes its tag from a semver
+                # ResourceSetInputProvider (limit 1), so a real upgrade always
+                # moves the version itself, and flux-containers refuses to
+                # re-push an existing tag.
+                - patch: |
+                    - op: add
+                      path: /spec/template/spec/containers/0/args/-
+                      value: --feature-gates=DisableChartDigestTracking=true
+                  target:
+                    kind: Deployment
+                    name: helm-controller
         postRenderers:
           # The chart unconditionally renders distribution.artifact with its
           # default (upstream's flux-operator-manifests:latest) -- an ungated
