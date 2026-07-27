@@ -31,7 +31,12 @@ spec:
 # namespaces only; the Gateway's traffic (data plane and health checks
 # alike) arrives from the Google Front End ranges, which no
 # namespaceSelector matches. Policies are additive, so this opens exactly
-# the web port to exactly those ranges.
+# the web and health ports to exactly those ranges.
+#
+# 8081 is the health port the HealthCheckPolicy (health-check.yaml) aims the LB
+# prober at instead of the SSO-fronted UI on 9080. It serves only /healthz and
+# /readyz -- no data plane -- and the GFE prober firewall rule is all-TCP, so
+# this NetworkPolicy is the only thing gating it.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -53,3 +58,5 @@ spec:
       ports:
         - protocol: TCP
           port: 9080
+        - protocol: TCP
+          port: 8081
