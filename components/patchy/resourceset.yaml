@@ -12,6 +12,17 @@
 # one input provider tag drives both. The two Secrets consumed (patchy-github,
 # patchy-anthropic) are synced in secret-sync.yaml; the mocked CMDB rides in
 # via a postRenderer because the chart has no extraVolumes knob.
+#
+# The patchy-config HelmRelease is the one object that rides resourcesTemplate
+# rather than resources below (flux-operator renders both and merges them),
+# because its integrations list is COMPOSED, not just filled in: the
+# google-cloud Integration exists only on a cluster whose terraform built the
+# SCC pipeline. Templating inside `resources:` can only fill scalars --
+# conditional membership of a list needs a text template. Rendering it with
+# empty values instead is not an option: audience and serviceAccount are
+# required with minLength 1 in both the chart's values schema and the CRD, so
+# an unconfigured cluster would fail the release rather than fail closed at
+# runtime.
 apiVersion: fluxcd.controlplane.io/v1
 kind: ResourceSet
 metadata:
@@ -166,6 +177,38 @@ spec:
                 # the mocked CMDB (static-context.yaml), mounted by the
                 # postRenderer below
                 PATCHY_STATIC_CONTEXT_FILE: /etc/patchy/context/cmdb.yaml
+                # Repository resolution for cloud findings: an SCC
+                # notification names a resource, never a repository, so the
+                # google-cloud-labels enhancer searches Cloud Asset Inventory
+                # within this scope for the resource's scm-repository-*
+                # ownership labels. Empty turns the enhancer off entirely --
+                # the enhancer chain is built from a non-empty scope alone --
+                # so a cluster without SCC pays nothing for the key being
+                # present, and the CMDB enhancer below still runs.
+                #
+                # The scope must match the cloudasset.viewer grant terraform
+                # made, not exceed it: a search wider than the grant fails
+                # rather than returning fewer results. It is organization-
+                # scoped, matching the notification config -- an app that
+                # triages every project's findings has to reach every
+                # project's resources -- so the grant is org-level and lives
+                # in the cloud-accounts common root, the only tier that can
+                # write org IAM.
+                PATCHY_GCP_ASSET_SCOPE: ${SCC_ASSET_SCOPE}
+            serviceAccount:
+              # Workload Identity impersonation of the SA holding that
+              # org-level grant. The <pool>[<ns>/<ksa>] binding on it is made
+              # by the patchy root; this annotation is the cluster-side half,
+              # and without it the controller authenticates as the KSA itself
+              # and every asset search 403s.
+              #
+              # Rendered as a flow mapping so the annotation is ABSENT rather
+              # than empty on a cluster with no SCC pipeline: a key present
+              # with an empty value would point Workload Identity at an SA
+              # that does not exist. The scope above is empty there too, so
+              # nothing ever asks for a Google token -- but an annotation that
+              # lies is worth avoiding even when it is never read.
+              annotations: << if ne "${SCC_ASSET_SA}" "" >>{"iam.gke.io/gcp-service-account":"${SCC_ASSET_SA}"}<< else >>{}<< end >>
           investigationController:
             nodeSelector:
               role: system
@@ -242,46 +285,95 @@ spec:
             # same helm.yaml workflow signs both charts
             - issuer: "${SIGNED_IDENTITY_ISSUER}"
               subject: '${SIGNED_IDENTITY_PATCHY:=^https://github\.com/bitwise-media-group/patchy/}'
-    - apiVersion: helm.toolkit.fluxcd.io/v2
-      kind: HelmRelease
-      metadata:
+  # The pipeline switch-on -- see the note at the top of this file for why
+  # this one release is a text template while everything above is structured.
+  resourcesTemplate: |
+    ---
+    apiVersion: helm.toolkit.fluxcd.io/v2
+    kind: HelmRelease
+    metadata:
+      name: patchy-config
+      namespace: patchy
+    spec:
+      interval: 30m
+      timeout: 5m
+      # the CRs cannot even be validated until the patchy release has
+      # installed the CRDs; helm-controller holds this release until the
+      # patchy HelmRelease is Ready
+      dependsOn:
+        - name: patchy
+      chartRef:
+        kind: OCIRepository
         name: patchy-config
         namespace: patchy
-      spec:
-        interval: 30m
-        timeout: 5m
-        # the CRs cannot even be validated until the patchy release has
-        # installed the CRDs; helm-controller holds this release until the
-        # patchy HelmRelease is Ready
-        dependsOn:
-          - name: patchy
-        chartRef:
-          kind: OCIRepository
-          name: patchy-config
-          namespace: patchy
-        values:
-          # The pipeline switch-on: the controllers idle until an Integration
-          # (findings in, tracking issues out) and a Forge (repository
-          # clone/push) exist. Both reference the one synced patchy-github
-          # Secret (secret-sync.yaml) — a single GitHub App serves read and
-          # write.
-          integrations:
-            - name: github
-              spec:
-                provider: github
-                secretRef:
-                  name: patchy-github
-                interval: 10m
-                github:
-                  issues:
-                    enabled: true
-                    approveComment: /approve
-                  codeScanningAlerts:
-                    enabled: true
-          forges:
-            - name: github
-              spec:
-                provider: github
-                secretRef:
-                  name: patchy-github
-                interval: 10m
+      values:
+        # The controllers idle until an Integration (findings in, tracking
+        # issues out) and a Forge (repository clone/push) exist. The github
+        # pair reference the one synced patchy-github Secret
+        # (secret-sync.yaml) -- a single GitHub App serves read and write.
+        integrations:
+          - name: github
+            spec:
+              provider: github
+              secretRef:
+                name: patchy-github
+              interval: 10m
+              github:
+                issues:
+                  enabled: true
+                  approveComment: /approve
+                  << if ne "${PATCHY_FALLBACK_REPOSITORY}" "" >>
+                  # Where a finding with no repository of its own gets its
+                  # tracking issue. Cloud findings are the reason: most
+                  # resources carry no scm-repository-* labels, and without a
+                  # fallback those findings are visible only through kubectl
+                  # and the status page. They still cannot be remediated --
+                  # an issue is a human surface, not a work tree.
+                  fallbackRepository: ${PATCHY_FALLBACK_REPOSITORY}
+                  << end >>
+                codeScanningAlerts:
+                  enabled: true
+          << if ne "${SCC_PUSH_SA}" "" >>
+          # Security Command Center. Present only when terraform built the
+          # pipeline (the patchy root's scc.tf); SCC_PUSH_SA is the whole
+          # gate, since a cluster with a push identity has all of the facts
+          # and one without has none.
+          #
+          # No secretRef: this Integration holds no credential and calls no
+          # Google API. SCC has no webhook, so a Pub/Sub push subscription
+          # forwards each notification to /google-cloud/webhooks
+          # authenticated by the OIDC token Pub/Sub signs. Anyone with a
+          # Google account can mint a Google-signed token, so it is the
+          # audience and the identity that make one meaningful -- patchy
+          # checks both and fails closed on either mismatch. Both come
+          # straight from the terraform outputs rather than being recomposed
+          # here: the audience happens to equal
+          # https://integrations.${PATCHY_DOMAIN}/google-cloud/webhooks
+          # today, but rebuilding a value that must match exactly, in a
+          # second place, is how it silently stops matching.
+          #
+          # minSeverity is left at the chart default: the notification
+          # config's own filter (active, unmuted, HIGH or above) already does
+          # the volume control, and doing it twice hides which one dropped a
+          # finding. Findings ingested here still need the github Integration
+          # above for their tracking issues.
+          - name: google-cloud
+            spec:
+              provider: google-cloud
+              interval: 10m
+              googleCloud:
+                securityCommandCenter:
+                  enabled: true
+                  audience: ${SCC_AUDIENCE}
+                  serviceAccount: ${SCC_PUSH_SA}
+                  # numeric org id, for composing Console links on findings
+                  # that carry no externalUri
+                  organization: "${SCC_ORGANIZATION}"
+          << end >>
+        forges:
+          - name: github
+            spec:
+              provider: github
+              secretRef:
+                name: patchy-github
+              interval: 10m
