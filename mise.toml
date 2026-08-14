@@ -17,7 +17,7 @@ includes = [".mise/tasks/markdown-lib.toml", "tasks.toml"]
 # locked in this repo's own mise.lock meanwhile — never run a repo-wide
 # `mise upgrade`, it would write into the submodule).
 "aqua:kubernetes-sigs/kustomize" = "5.7.1"
-"aqua:yannh/kubeconform" = "0.7.0"
+"aqua:yannh/kubeconform" = "0.8.0"
 "aqua:mikefarah/yq" = "4.53.3"
 # renders ResourceSets with sample inputs (`flux-operator build resourceset`)
 "github:controlplaneio-fluxcd/flux-operator" = "0.55.0"
