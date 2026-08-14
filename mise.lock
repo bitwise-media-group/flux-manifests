@@ -145,6 +145,7 @@ checksum = "sha256:67a9dad35c06ad76a298b6a28440022be0e2db3b93ef96dd090b4eaa77f54
 url = "https://github.com/controlplaneio-fluxcd/flux-operator/releases/download/v0.55.0/flux-operator_0.55.0_linux_amd64.tar.gz"
 url_api = "https://api.github.com/repos/controlplaneio-fluxcd/flux-operator/releases/assets/475574497"
 provenance = "github-attestations"
+provenance_verified = true
 
 [tools."github:controlplaneio-fluxcd/flux-operator"."platforms.linux-x64-musl"]
 checksum = "sha256:67a9dad35c06ad76a298b6a28440022be0e2db3b93ef96dd090b4eaa77f542f7"
