@@ -158,6 +158,7 @@ checksum = "sha256:f26c9c1920da73029961b68d8d902fb280d0c2ec81a32a5af28ec706cc689
 url = "https://github.com/controlplaneio-fluxcd/flux-operator/releases/download/v0.58.0/flux-operator_0.58.0_darwin_arm64.tar.gz"
 url_api = "https://api.github.com/repos/controlplaneio-fluxcd/flux-operator/releases/assets/505306994"
 provenance = "github-attestations"
+provenance_verified = true
 
 [tools."github:controlplaneio-fluxcd/flux-operator"."platforms.macos-x64"]
 checksum = "sha256:fc7ccaa85faead8fc9ff1bac3a572ea9ea2c2371a9d857c2885fbd36fd8a8bd4"
