@@ -15,9 +15,17 @@ metadata:
   name: otel-collector
   namespace: otel-collector
 spec:
+  # Permute joins the chart and image providers into one input set (each
+  # exports exactly one, so the product stays one) and namespaces every
+  # provider's inputs under its normalized name: inputs.otel_collector.*,
+  # inputs.otel_collector_image.*.
+  inputStrategy:
+    name: Permute
   inputsFrom:
     - kind: ResourceSetInputProvider
       name: otel-collector
+    - kind: ResourceSetInputProvider
+      name: otel-collector-image
   resources:
     - apiVersion: source.toolkit.fluxcd.io/v1
       kind: OCIRepository
@@ -29,7 +37,7 @@ spec:
         url: oci://${PLATFORM_REGISTRY}/charts/opentelemetry-collector
         provider: "${OCI_PROVIDER:=gcp}"
         ref:
-          tag: << inputs.tag >>
+          tag: << inputs.otel_collector.tag >>
         verify:
           provider: cosign
           matchOIDCIdentity:
@@ -54,6 +62,10 @@ spec:
           replicaCount: 2
           image:
             repository: ${CONTAINER_REGISTRY}/images/ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector-contrib
+            # The mirror tracks this image independently of the chart; the
+            # tag comes from the otel-collector-image provider, not the
+            # chart's appVersion default.
+            tag: << inputs.otel_collector_image.tag >>
           command:
             name: otelcol-contrib
           # The terraform Workload Identity grant binds

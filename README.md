@@ -28,6 +28,13 @@ registry) plus a ResourceSet templating an OCIRepository (**keyless verify** via
 A flux-containers publish therefore rolls out on the next reconcile — bounded by each component's semver range,
 overridable per cluster via `*_SEMVER` cluster vars.
 
+Components whose image the mirror tracks independently of the chart (dex, external-dns, otel-collector — images that
+release faster than their charts, pinned by `.images.track` in flux-containers) carry a **second** `GARArtifactTag`
+provider watching the mirrored image repository. Their ResourceSets join both providers with the `Permute` input
+strategy (inputs namespaced per provider: `inputs.<name>.tag`, `inputs.<name>_image.tag`) and feed the image pick into
+the HelmRelease `image.tag`, so a tracked image bump published by the mirror rolls out with no chart release — bounded
+by `*_IMAGE_SEMVER` cluster vars, which should mirror the track rule's release train.
+
 On top of the always-on core above sits an **optional tier — `dex`, `flux-web`, `patchy` — elected by short name** via
 the `STACK_COMPONENTS` cluster var (comma-separated; unset elects everything, so the default cluster is unchanged; the
 terraform module includes `dex` exactly when its `sso` toggle is on). The `optional` Kustomization templates the tier's

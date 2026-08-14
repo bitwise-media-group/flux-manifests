@@ -14,9 +14,17 @@ metadata:
   name: external-dns
   namespace: external-dns
 spec:
+  # Permute joins the chart and image providers into one input set (each
+  # exports exactly one, so the product stays one) and namespaces every
+  # provider's inputs under its normalized name: inputs.external_dns.*,
+  # inputs.external_dns_image.*.
+  inputStrategy:
+    name: Permute
   inputsFrom:
     - kind: ResourceSetInputProvider
       name: external-dns
+    - kind: ResourceSetInputProvider
+      name: external-dns-image
   resources:
     - apiVersion: source.toolkit.fluxcd.io/v1
       kind: OCIRepository
@@ -28,7 +36,7 @@ spec:
         url: oci://${PLATFORM_REGISTRY}/charts/external-dns
         provider: "${OCI_PROVIDER:=gcp}"
         ref:
-          tag: << inputs.tag >>
+          tag: << inputs.external_dns.tag >>
         verify:
           provider: cosign
           matchOIDCIdentity:
@@ -49,6 +57,10 @@ spec:
         values:
           image:
             repository: ${CONTAINER_REGISTRY}/images/registry.k8s.io/external-dns/external-dns
+            # The mirror tracks this image independently of the chart; the
+            # tag comes from the external-dns-image provider, not the
+            # chart's appVersion default.
+            tag: << inputs.external_dns_image.tag >>
           provider:
             name: google
           extraArgs:

@@ -15,3 +15,27 @@ spec:
     # must not start with '>' or YAML reads it as a folded block scalar.
     semver: "${DEX_SEMVER:=<1.0.0 >=0.24.0}"
     limit: 1
+---
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+#
+# The dex image rides its own release train: the mirror tracks it
+# independently of the chart (flux-containers .images.track), because the
+# chart's appVersion lags dex image releases by months. This provider
+# follows the mirrored image tags — only soaked, scanned, signed tags ever
+# reach the mirror — and the ResourceSet feeds the pick into the
+# HelmRelease image.tag. Keep the range aligned with the track rule's
+# release train.
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSetInputProvider
+metadata:
+  name: dex-image
+  namespace: dex
+  annotations:
+    fluxcd.controlplane.io/reconcileEvery: 30m
+spec:
+  type: GARArtifactTag
+  url: oci://${PLATFORM_REGISTRY}/images/ghcr.io/dexidp/dex
+  filter:
+    semver: "${DEX_IMAGE_SEMVER:=<3.0.0 >=2.44.0}"
+    limit: 1

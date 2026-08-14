@@ -21,9 +21,17 @@ metadata:
   name: dex
   namespace: dex
 spec:
+  # Permute joins the chart and image providers into one input set (each
+  # exports exactly one, so the product stays one) and namespaces every
+  # provider's inputs under its normalized name: inputs.dex.*,
+  # inputs.dex_image.*.
+  inputStrategy:
+    name: Permute
   inputsFrom:
     - kind: ResourceSetInputProvider
       name: dex
+    - kind: ResourceSetInputProvider
+      name: dex-image
   resourcesTemplate: |
     << $elected := splitList "," "${STACK_COMPONENTS:=dex,flux-web,patchy}" >>
     ---
@@ -37,7 +45,7 @@ spec:
       url: oci://${PLATFORM_REGISTRY}/charts/dex
       provider: "${OCI_PROVIDER:=gcp}"
       ref:
-        tag: << inputs.tag >>
+        tag: << inputs.dex.tag >>
       verify:
         provider: cosign
         matchOIDCIdentity:
@@ -62,6 +70,10 @@ spec:
       values:
         image:
           repository: ${CONTAINER_REGISTRY}/images/ghcr.io/dexidp/dex
+          # The mirror tracks this image independently of the chart; the
+          # tag comes from the dex-image provider, not the chart's
+          # appVersion default.
+          tag: << inputs.dex_image.tag >>
         # The terraform Workload Identity binding expects dex/dex annotated
         # with the directory SA -- pin the name so the contract holds.
         serviceAccount:

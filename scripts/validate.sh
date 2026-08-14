@@ -48,13 +48,21 @@ kustomize build "$ROOT/stack" > "$BUILD/stack.yaml"
 
 echo ">> rendering resourcesets with sample inputs"
 # Every ResourceSet must have a matching inputs fixture: tests/inputs/<component>/<file>.yaml
+# Two fixture shapes: a plain list of input sets (--inputs-from), or Static
+# ResourceSetInputProvider manifests (--inputs-from-provider) for ResourceSets
+# using the Permute strategy -- Permute namespaces inputs by provider name, and
+# only provider-shaped fixtures reproduce that in the render.
 for rs in "$ROOT"/components/*/resourceset*.yaml; do
   comp="$(basename "$(dirname "$rs")")"
   file="$(basename "$rs" .yaml)"
   inputs="$ROOT/tests/inputs/$comp/$file.yaml"
   [[ -f "$inputs" ]] || { echo "missing test inputs $inputs for $rs" >&2; exit 1; }
   substitute "$rs" "$BUILD/rs-$comp-$file.yaml"
-  flux-operator build resourceset -f "$BUILD/rs-$comp-$file.yaml" --inputs-from "$inputs" \
+  inputs_flag="--inputs-from"
+  if grep -q "^kind: ResourceSetInputProvider$" "$inputs"; then
+    inputs_flag="--inputs-from-provider"
+  fi
+  flux-operator build resourceset -f "$BUILD/rs-$comp-$file.yaml" "$inputs_flag" "$inputs" \
     > "$BUILD/rendered-$comp-$file.yaml"
 done
 
