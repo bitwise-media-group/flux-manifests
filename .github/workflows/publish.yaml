@@ -39,7 +39,7 @@ jobs:
           ref: ${{ github.event.release.tag_name }}
 
       - name: install flux CLI
-        uses: fluxcd/flux2/action@e7c8344229f561f69b3f053987aa1064e135a11f # v2.9.2
+        uses: fluxcd/flux2/action@6a650dba1b4ae9945185c4bb3cc3f386aaf71b3d # v2.9.2
 
       - name: install cosign
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
