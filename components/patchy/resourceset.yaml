@@ -9,9 +9,10 @@
 # (upstream 0.5.0) because Helm validates every manifest against the API
 # server before applying anything -- a single release can never install a CRD
 # and a CR of that CRD on first install. Both charts version in lockstep, so
-# one input provider tag drives both. The two Secrets consumed (patchy-github,
-# patchy-anthropic) are synced in secret-sync.yaml; the mocked CMDB rides in
-# via a postRenderer because the chart has no extraVolumes knob.
+# one input provider tag drives both. The unconditional patchy-github Secret
+# is synced in secret-sync.yaml; patchy-anthropic is conditional on the model
+# provider and rides resourceset-secrets.yaml. The mocked CMDB rides in via a
+# postRenderer because the chart has no extraVolumes knob.
 #
 # The patchy-config HelmRelease is the one object that rides resourcesTemplate
 # rather than resources below (flux-operator renders both and merges them),
@@ -103,10 +104,28 @@ spec:
             runners:
               claude:
                 enabled: << has "claude" (splitList "," "${AGENT_HARNESSES:=claude}") >>
-                # the synced Secret holds a `claude setup-token` OAuth token,
-                # not an API key; the chart's own defaults already name the
-                # Secret and key (patchy-anthropic / api-key, secret-sync.yaml)
-                secretEnv: CLAUDE_CODE_OAUTH_TOKEN
+                # No credential here: claude is BROKERED, so the Anthropic
+                # credential is consumed by the egress broker in THIS
+                # namespace (egressBroker below; synced conditionally in
+                # resourceset-secrets.yaml) and nothing secret ever enters
+                # an agent pod. Which model API the broker fronts is a
+                # cluster decision, so every provider field rides a
+                # CLAUDE_* cluster var.
+                provider:
+                  name: ${CLAUDE_PROVIDER:=anthropic}
+                  # the chart's region field is shared across providers; the
+                  # wire vars are provider-prefixed, so this picks the one
+                  # matching the selected provider (quoted: both may be
+                  # empty, and the strict schema wants a string, not null)
+                  region: << ternary "${CLAUDE_BEDROCK_REGION}" "${CLAUDE_VERTEX_REGION}" (eq "${CLAUDE_PROVIDER:=anthropic}" "bedrock") | quote >>
+                  # single-provider fields, so they map 1:1 from their vars
+                  regionPrefix: "${CLAUDE_BEDROCK_REGION_PREFIX}"
+                  projectID: "${CLAUDE_VERTEX_PROJECT_ID}"
+                  # canonical-id -> provider-model-id overrides, wired as a
+                  # flat "k=v,k=v" string (a ConfigMap value is a scalar) and
+                  # rebuilt into a flow mapping here -- same one-scalar-
+                  # position trick as the annotations flow mapping below
+                  modelMap: << if ne "${CLAUDE_MODEL_MAP}" "" >>{<< range $i, $pair := splitList "," "${CLAUDE_MODEL_MAP}" >><< if $i >>,<< end >>"<< index (splitList "=" $pair) 0 >>":"<< index (splitList "=" $pair) 1 >>"<< end >>}<< else >>{}<< end >>
               codex:
                 # defaults: patchy-openai / api-key as OPENAI_API_KEY. The
                 # CODEX_API_KEY and CODEX_ACCESS_TOKEN channels (a ChatGPT
@@ -160,6 +179,26 @@ spec:
               # to enforce then fails open instead of blackholing every
               # runner Job.
               broadEgress: ${AGENT_EGRESS_BROAD:=auto}
+          # The egress credential broker: renders whenever the claude runner
+          # is enabled and terminates ALL of that runner's model traffic,
+          # holding the credential (or cloud identity) the agent pods no
+          # longer see. Which provider it fronts is
+          # agent.runners.claude.provider above.
+          egressBroker:
+            # the synced credential is a `claude setup-token` OAuth token,
+            # sent as a bearer; set key on a cluster whose Secret Manager
+            # container holds a real API key
+            anthropicAuth: ${CLAUDE_ANTHROPIC_AUTH:=token}
+            # always-on singleton like the controllers -> the system pool
+            nodeSelector:
+              role: system
+            networkPolicy:
+              # the cloud credential endpoint the broker's SDK dials, keyed
+              # off the provider (which implies the cloud): the EKS Pod
+              # Identity agent for bedrock, the GKE metadata server for
+              # vertex; anthropic needs nothing beyond the chart's TCP-443
+              # rule
+              extraEgress: << if eq "${CLAUDE_PROVIDER:=anthropic}" "bedrock" >>[{"to":[{"ipBlock":{"cidr":"169.254.170.23/32"}}],"ports":[{"protocol":"TCP","port":80}]}]<< else if eq "${CLAUDE_PROVIDER:=anthropic}" "vertex" >>[{"to":[{"ipBlock":{"cidr":"169.254.169.254/32"}}],"ports":[{"protocol":"TCP","port":80}]}]<< else >>[]<< end >>
           # The controllers are small always-on singletons -> the system
           # pool; agent Jobs carry no selector and ride node
           # auto-provisioning.
