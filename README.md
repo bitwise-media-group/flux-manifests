@@ -49,52 +49,53 @@ human-facing HTTPRoute (port-forward to reach; the webhook edge is unaffected �
 Published by `terraform-google-gke-flux` into the `cluster-vars` ConfigMap (flux-system) and substituted into every
 Kustomization (`${VAR}`, `${VAR:=default}`); optional surfaces use the empty-string convention.
 
-| key                            | example                                              | consumed by                                                                           |
-| ------------------------------ | ---------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| `CLUSTER_NAME`                 | `patchy-x`                                           | external-dns (txtOwnerId)                                                             |
-| `GCP_PROJECT`                  | `x-patchy-app-ab12`                                  | external-dns, issuers                                                                 |
-| `GCP_PROJECT_NUMBER`           | `123456789012`                                       | (published for component use)                                                         |
-| `GCP_REGION`                   | `us-central1`                                        | (published for component use)                                                         |
-| `PLATFORM_REGISTRY`            | `us-central1-docker.pkg.dev/…/platform`              | every RSIP + OCIRepository                                                            |
-| `CONTAINER_REGISTRY`           | same                                                 | every HelmRelease image value (`images/<upstream-path>`)                              |
-| `OCI_PROVIDER`                 | default `gcp`                                        | OCIRepository registry auth                                                           |
-| `SIGNED_IDENTITY_ISSUER`       | `^https://token\.actions\.githubusercontent\.com$`   | verify blocks + kyverno policy                                                        |
-| `SIGNED_IDENTITY_CHARTS`       | flux-containers publish@main regexp                  | chart OCIRepository verify                                                            |
-| `SIGNED_IDENTITY_IMAGES`       | flux-containers publish@main regexp                  | kyverno policy                                                                        |
-| `SIGNED_IDENTITY_MANIFESTS`    | flux-manifests publish regexp (per channel)          | flux — sync OCIRepository verify patch                                                |
-| `FLUX_SYNC_CHANNEL`            | `edge` / `stable` (default `stable`)                 | flux — FluxInstance sync ref (release channel)                                        |
-| `DNS_ZONE_NAME`                | `patchy-bitwisemedia-co-uk`                          | external-dns zone filter                                                              |
-| `DNS_DOMAIN`                   | `patchy.bitwisemedia.co.uk`                          | external-dns domain filter                                                            |
-| `PATCHY_DOMAIN`                | `patchy.bitwisemedia.co.uk`                          | gateway listener + certificate                                                        |
-| `ACME_EMAIL`                   | `you@bitwisemedia.co.uk`                             | issuers                                                                               |
-| `GATEWAY_ADDRESS_NAME`         | `patchy-x-gateway`                                   | gateway (NamedAddress)                                                                |
-| `GATEWAY_IP`                   | `203.0.113.10`                                       | (informational)                                                                       |
-| `OTEL_PROJECT`                 | `x-patchy-app-ab12`                                  | otel-collector exporters                                                              |
-| `SECRET_PREFIX`                | `patchy-x-` (empty for unprefixed containers)        | every Secret Manager resourceName — distinct per-cluster secrets in a shared project  |
-| `STACK_COMPONENTS`             | `dex,patchy` (unset elects everything)               | optional-tier election — see below                                                    |
-| `DEX_DIRECTORY_SA`             | `dex-directory@….iam.gserviceaccount.com`            | dex KSA annotation (typed `sso.directory_sa`; empty when sso off)                     |
-| `RBAC_GROUP_VIEWERS`           | `gcp-x-patchy-viewers@bitwisemedia.co.uk`            | rbac — cluster-wide `view` + patchy findings read                                     |
-| `RBAC_GROUP_DEVELOPERS`        | `gcp-x-patchy-developers@bitwisemedia.co.uk`         | rbac — `patchy-findings-operator` in the patchy namespace                             |
-| `RBAC_GROUP_DEVOPS`            | `gcp-x-patchy-devops@bitwisemedia.co.uk`             | rbac — cluster-wide `edit`                                                            |
-| `RBAC_GROUP_ADMINS`            | `gcp-x-patchy-admins@bitwisemedia.co.uk`             | rbac — cluster-wide `cluster-admin` + `patchy-findings-admin` (demo tooling)          |
-| `KYVERNO_FAILURE_ACTION`       | default `Audit`                                      | kyverno policy — flip to `Enforce` after soaking a fresh cluster                      |
-| `AGENT_HARNESSES`              | default `claude` (of `claude,codex,copilot`)         | patchy — agent runner election; also gates each harness's credential sync             |
-| `AGENT_EGRESS_POLICY`          | default `auto` (`none`/`cilium`/`gke`/`istio`)       | patchy — agent sandbox hostname-egress dialect; `auto` detects it per cluster         |
-| `AGENT_EGRESS_BROAD`           | default `auto` (`always` to soak)                    | patchy — keep the base "443 to anywhere" rule while a newly enabled dialect soaks     |
-| `CLAUDE_PROVIDER`              | default `anthropic` (`bedrock`/`vertex`)             | patchy — model API the egress broker fronts; gates the anthropic sync + broker egress |
-| `CLAUDE_ANTHROPIC_AUTH`        | default `token` (`key` for a real API key)           | patchy — how the broker sends the anthropic credential (bearer vs `x-api-key`)        |
-| `CLAUDE_BEDROCK_REGION`        | `us-east-1` (empty unless bedrock)                   | patchy — broker Bedrock region                                                        |
-| `CLAUDE_BEDROCK_REGION_PREFIX` | `us`/`eu`/`apac` (empty for none)                    | patchy — Bedrock cross-region inference-profile geo prefix                            |
-| `CLAUDE_VERTEX_REGION`         | `us-east5`/`global` (empty unless vertex)            | patchy — broker Vertex region                                                         |
-| `CLAUDE_VERTEX_PROJECT_ID`     | `x-patchy-app-ab12` (empty unless vertex)            | patchy — broker Vertex project                                                        |
-| `CLAUDE_MODEL_MAP`             | `canonical=providerID,…` (empty derives ids)         | patchy — per-provider model-id overrides, comma-joined `k=v` pairs                    |
-| `SCC_AUDIENCE`                 | `https://integrations.patchy…/google-cloud/webhooks` | patchy — google-cloud Integration audience, verbatim from terraform                   |
-| `SCC_PUSH_SA`                  | `patchy-scc-push@….iam.gserviceaccount.com`          | patchy — the only push identity accepted; **empty omits the Integration entirely**    |
-| `SCC_ORGANIZATION`             | `123456789012`                                       | patchy — numeric org id, for Console links on findings with no `externalUri`          |
-| `SCC_ASSET_SCOPE`              | `organizations/123456789012`                         | patchy — context-controller asset search scope; empty disables repository resolution  |
-| `SCC_ASSET_SA`                 | `patchy-assets@….iam.gserviceaccount.com`            | patchy — context-controller KSA annotation; the SA holding the org asset grant        |
-| `PATCHY_FALLBACK_REPOSITORY`   | `bitwisemedia/security` (empty for none)             | patchy — tracking issues for findings that resolve no repository of their own         |
-| `*_SEMVER`                     | `>=3.8.0 <4.0.0`                                     | per-component chart range overrides                                                   |
+| key                            | example                                                | consumed by                                                                           |
+| ------------------------------ | ------------------------------------------------------ | ------------------------------------------------------------------------------------- |
+| `CLUSTER_NAME`                 | `patchy-x`                                             | external-dns (txtOwnerId)                                                             |
+| `GCP_PROJECT`                  | `x-patchy-app-ab12`                                    | external-dns, issuers                                                                 |
+| `GCP_PROJECT_NUMBER`           | `123456789012`                                         | (published for component use)                                                         |
+| `GCP_REGION`                   | `us-central1`                                          | (published for component use)                                                         |
+| `PLATFORM_REGISTRY`            | `us-central1-docker.pkg.dev/…/platform`                | every RSIP + OCIRepository                                                            |
+| `CONTAINER_REGISTRY`           | same                                                   | every HelmRelease image value (`images/<upstream-path>`)                              |
+| `OCI_PROVIDER`                 | default `gcp`                                          | OCIRepository registry auth                                                           |
+| `SIGNED_IDENTITY_ISSUER`       | `^https://token\.actions\.githubusercontent\.com$`     | verify blocks + kyverno policy                                                        |
+| `SIGNED_IDENTITY_CHARTS`       | flux-containers publish@main regexp                    | chart OCIRepository verify                                                            |
+| `SIGNED_IDENTITY_IMAGES`       | flux-containers publish@main regexp                    | kyverno policy                                                                        |
+| `SIGNED_IDENTITY_MANIFESTS`    | flux-manifests publish regexp (per channel)            | flux — sync OCIRepository verify patch                                                |
+| `FLUX_SYNC_CHANNEL`            | `edge` / `stable` (default `stable`)                   | flux — FluxInstance sync ref (release channel)                                        |
+| `DNS_ZONE_NAME`                | `patchy-bitwisemedia-co-uk`                            | external-dns zone filter                                                              |
+| `DNS_DOMAIN`                   | `patchy.bitwisemedia.co.uk`                            | external-dns domain filter                                                            |
+| `PATCHY_DOMAIN`                | `patchy.bitwisemedia.co.uk`                            | gateway listener + certificate                                                        |
+| `ACME_EMAIL`                   | `you@bitwisemedia.co.uk`                               | issuers                                                                               |
+| `GATEWAY_ADDRESS_NAME`         | `patchy-x-gateway`                                     | gateway (NamedAddress)                                                                |
+| `GATEWAY_IP`                   | `203.0.113.10`                                         | (informational)                                                                       |
+| `OTEL_PROJECT`                 | `x-patchy-app-ab12`                                    | otel-collector exporters                                                              |
+| `SECRET_PREFIX`                | `patchy-x-` (empty for unprefixed containers)          | every Secret Manager resourceName — distinct per-cluster secrets in a shared project  |
+| `STACK_COMPONENTS`             | `dex,patchy` (unset elects everything)                 | optional-tier election — see below                                                    |
+| `DEX_CONNECTORS`               | JSON array (typed `sso.connectors`; `[]` when sso off) | dex — arbitrary SSO federation, one entry per upstream connector (see below)          |
+| `DEX_DIRECTORY_SA`             | `dex-directory@….iam.gserviceaccount.com`              | dex KSA annotation (typed `sso.directory_sa`; empty when sso off or unset)            |
+| `RBAC_GROUP_VIEWERS`           | `gcp-x-patchy-viewers@bitwisemedia.co.uk`              | rbac — cluster-wide `view` + patchy findings read                                     |
+| `RBAC_GROUP_DEVELOPERS`        | `gcp-x-patchy-developers@bitwisemedia.co.uk`           | rbac — `patchy-findings-operator` in the patchy namespace                             |
+| `RBAC_GROUP_DEVOPS`            | `gcp-x-patchy-devops@bitwisemedia.co.uk`               | rbac — cluster-wide `edit`                                                            |
+| `RBAC_GROUP_ADMINS`            | `gcp-x-patchy-admins@bitwisemedia.co.uk`               | rbac — cluster-wide `cluster-admin` + `patchy-findings-admin` (demo tooling)          |
+| `KYVERNO_FAILURE_ACTION`       | default `Audit`                                        | kyverno policy — flip to `Enforce` after soaking a fresh cluster                      |
+| `AGENT_HARNESSES`              | default `claude` (of `claude,codex,copilot`)           | patchy — agent runner election; also gates each harness's credential sync             |
+| `AGENT_EGRESS_POLICY`          | default `auto` (`none`/`cilium`/`gke`/`istio`)         | patchy — agent sandbox hostname-egress dialect; `auto` detects it per cluster         |
+| `AGENT_EGRESS_BROAD`           | default `auto` (`always` to soak)                      | patchy — keep the base "443 to anywhere" rule while a newly enabled dialect soaks     |
+| `CLAUDE_PROVIDER`              | default `anthropic` (`bedrock`/`vertex`)               | patchy — model API the egress broker fronts; gates the anthropic sync + broker egress |
+| `CLAUDE_ANTHROPIC_AUTH`        | default `token` (`key` for a real API key)             | patchy — how the broker sends the anthropic credential (bearer vs `x-api-key`)        |
+| `CLAUDE_BEDROCK_REGION`        | `us-east-1` (empty unless bedrock)                     | patchy — broker Bedrock region                                                        |
+| `CLAUDE_BEDROCK_REGION_PREFIX` | `us`/`eu`/`apac` (empty for none)                      | patchy — Bedrock cross-region inference-profile geo prefix                            |
+| `CLAUDE_VERTEX_REGION`         | `us-east5`/`global` (empty unless vertex)              | patchy — broker Vertex region                                                         |
+| `CLAUDE_VERTEX_PROJECT_ID`     | `x-patchy-app-ab12` (empty unless vertex)              | patchy — broker Vertex project                                                        |
+| `CLAUDE_MODEL_MAP`             | `canonical=providerID,…` (empty derives ids)           | patchy — per-provider model-id overrides, comma-joined `k=v` pairs                    |
+| `SCC_AUDIENCE`                 | `https://integrations.patchy…/google-cloud/webhooks`   | patchy — google-cloud Integration audience, verbatim from terraform                   |
+| `SCC_PUSH_SA`                  | `patchy-scc-push@….iam.gserviceaccount.com`            | patchy — the only push identity accepted; **empty omits the Integration entirely**    |
+| `SCC_ORGANIZATION`             | `123456789012`                                         | patchy — numeric org id, for Console links on findings with no `externalUri`          |
+| `SCC_ASSET_SCOPE`              | `organizations/123456789012`                           | patchy — context-controller asset search scope; empty disables repository resolution  |
+| `SCC_ASSET_SA`                 | `patchy-assets@….iam.gserviceaccount.com`              | patchy — context-controller KSA annotation; the SA holding the org asset grant        |
+| `PATCHY_FALLBACK_REPOSITORY`   | `bitwisemedia/security` (empty for none)               | patchy — tracking issues for findings that resolve no repository of their own         |
+| `*_SEMVER`                     | `>=3.8.0 <4.0.0`                                       | per-component chart range overrides                                                   |
 
 The `SCC_*` keys are the exception to the first sentence: the SCC pipeline is built by the `patchy` root, not by the
 cluster module, so they arrive as caller extras through `flux.cluster_vars` rather than as reserved keys. `SCC_PUSH_SA`

@@ -3,8 +3,12 @@
 
 # dex is the platform's OIDC identity provider: the patchy status page and
 # the Flux status web UI both sign humans in through it. Upstream identity
-# is Google Workspace via the google connector; group membership comes from
-# the Directory API keylessly -- the dex KSA is annotated with the
+# is arbitrary -- every connector dex config carries comes from the
+# terraform-published DEX_CONNECTORS cluster var (a JSON array; see the
+# connectors: block below), so a google connector's group membership via the
+# Directory API is just one instance among any dex-supported connector type.
+# When a google connector is used, its group membership comes from the
+# Directory API keylessly -- the dex KSA is annotated with the
 # terraform-created directory service account (common root dex.tf,
 # domain-wide delegation), so Workload Identity signs the delegation
 # assertion with no key file. The namespace/name/annotation triple below is
@@ -102,20 +106,22 @@ spec:
             # The relying parties are first-party platform UIs; a consent
             # screen between two internal pages is pure friction.
             skipApprovalScreen: true
+          # Fully data-driven: DEX_CONNECTORS carries every connector's
+          # {id, type, name, config} as JSON, published by the cluster
+          # module's local.dex_connectors (sso.tf) -- config renders as a
+          # single-line JSON value (a YAML subset), preserving real types
+          # (lists, bools, numbers) coming through without hand-building
+          # indented YAML from a generic map. Same trick as the patchy
+          # component's modelMap (components/patchy/resourceset.yaml).
+          # Backtick-quoted (a Go template raw string): JSON's own double
+          # quotes would otherwise terminate the substituted string early.
           connectors:
-            - type: google
-              id: google
-              name: Google
-              config:
-                clientID: $GOOGLE_CLIENT_ID
-                clientSecret: $GOOGLE_CLIENT_SECRET
-                redirectURI: https://dex.${PATCHY_DOMAIN}/callback
-                # Directory reads (group claims) impersonate this Workspace
-                # admin via the annotated SA's domain-wide delegation --
-                # keyless, see dex.tf. No serviceAccountFilePath: dex
-                # resolves the SA from the metadata server.
-                adminEmail: $GOOGLE_ADMIN_EMAIL
-                fetchTransitiveGroupMembership: true
+            << range $c := mustFromJson `${DEX_CONNECTORS:=[]}` >>
+            - type: << $c.type | quote >>
+              id: << $c.id | quote >>
+              name: << $c.name | quote >>
+              config: << toJson $c.config >>
+            << end >>
           << if or (has "flux-web" $elected) (has "patchy" $elected) >>
           # One static client per ELECTED relying party. The secrets are
           # the terraform-generated dex-client-* containers, synced here as
