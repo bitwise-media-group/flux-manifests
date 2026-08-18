@@ -9,9 +9,9 @@
 # (upstream 0.5.0) because Helm validates every manifest against the API
 # server before applying anything -- a single release can never install a CRD
 # and a CR of that CRD on first install. Both charts version in lockstep, so
-# one input provider tag drives both. The unconditional patchy-github Secret
-# is synced in secret-sync.yaml; patchy-anthropic is conditional on the model
-# provider and rides resourceset-secrets.yaml. The mocked CMDB rides in via a
+# one input provider tag drives both. Every credential Secret -- the
+# unconditional patchy-github, and the gated patchy-anthropic and friends --
+# is synced by resourceset-secrets.yaml. The mocked CMDB rides in via a
 # postRenderer because the chart has no extraVolumes knob.
 #
 # The patchy-config HelmRelease is the one object that rides resourcesTemplate
@@ -349,7 +349,8 @@ spec:
         # The controllers idle until an Integration (findings in, tracking
         # issues out) and a Forge (repository clone/push) exist. The github
         # pair reference the one synced patchy-github Secret
-        # (secret-sync.yaml) -- a single GitHub App serves read and write.
+        # (resourceset-secrets.yaml) -- a single GitHub App serves read and
+        # write.
         integrations:
           - name: github
             spec:

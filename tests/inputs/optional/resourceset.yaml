@@ -2,5 +2,8 @@
 # SPDX-License-Identifier: MIT
 
 # Everything elected, so every optional-tier Kustomization renders and gets
-# kubeconform-validated.
-- components: dex,flux-web,patchy
+# kubeconform-validated. The aws render -- which additionally emits the
+# secret-sync Kustomization and the dependencies on it -- comes from the
+# resourceset.aws.yaml variant.
+- cloud: google
+  components: dex,flux-web,patchy

@@ -44,6 +44,27 @@ only when dex is also elected (it is nothing but the flux UI's SSO wiring — wi
 reachable via port-forward), and on a dex-less cluster patchy's status page drops to its rollups-only posture with no
 human-facing HTTPRoute (port-forward to reach; the webhook edge is unaffected — machines authenticate by HMAC, not SSO).
 
+### Secret sync (`CLOUD`)
+
+Every credential Secret the optional tier consumes is materialised by a `SecretProviderClass`/`SecretSync` pair, and the
+`CLOUD` cluster var selects the dialect both render in — the mapping (source path → Secret key), the consuming
+`*-secrets` ServiceAccounts, and the Secret names the charts hardcode are identical on both clouds:
+
+- **`google`** (the default): GKE Integrated Secret Synchronization, enabled by the gke module's `secret_sync` toggle —
+  `provider: gke`, GCP Secret Manager `resourceName`s under `GCP_PROJECT`, `SecretSync` from `secret-sync.gke.io/v1`.
+  The `*-secrets` KSAs hold direct Workload Identity `secretAccessor` grants made beside the secret containers.
+- **`aws`**: the Secrets Store CSI driver + AWS provider arrive as the `aws-secrets-store-csi-driver-provider` EKS
+  add-on (terraform, `terraform-aws-eks-flux`), and the missing piece — the upstream
+  [secrets-store-sync-controller](https://github.com/kubernetes-sigs/secrets-store-sync-controller), which materialises
+  Secrets **without** a pod mounting a CSI volume — deploys as this stack's `secret-sync` component, emitted by the
+  `optional` election only on `CLOUD=aws` and only when a secret-consuming component is elected (dex, flux-web and
+  patchy's Kustomizations then depend on it, so the `secret-sync.x-k8s.io/v1alpha1` CRD exists before any `SecretSync`
+  is applied). Syncs render `provider: aws` with `usePodIdentity: "true"` and Secrets Manager `objectName`s
+  (`${SECRET_PREFIX}<name>` in `AWS_REGION`): the controller requests each `SecretSync`'s KSA token with the
+  `pods.eks.amazonaws.com` audience, so the reader identity is the consumer KSA's **Pod Identity association** (the
+  reader roles the cluster module creates), never the controller's own. The mirrored chart is expected at
+  `charts/secrets-store-sync-controller` in the platform registry (`SECRET_SYNC_SEMVER` overrides its range).
+
 ## The terraform ↔ flux contract (cluster-vars)
 
 Published by `terraform-google-gke-flux` into the `cluster-vars` ConfigMap (flux-system) and substituted into every
@@ -52,7 +73,9 @@ Kustomization (`${VAR}`, `${VAR:=default}`); optional surfaces use the empty-str
 | key                            | example                                                | consumed by                                                                           |
 | ------------------------------ | ------------------------------------------------------ | ------------------------------------------------------------------------------------- |
 | `CLUSTER_NAME`                 | `patchy-x`                                             | external-dns (txtOwnerId)                                                             |
-| `GCP_PROJECT`                  | `x-patchy-app-ab12`                                    | external-dns, issuers                                                                 |
+| `CLOUD`                        | default `google` (`aws`)                               | secret syncs + optional tier — selects the secret-sync dialect (see below)            |
+| `GCP_PROJECT`                  | `x-patchy-app-ab12`                                    | external-dns, issuers, google secret syncs                                            |
+| `AWS_REGION`                   | `eu-west-2` (aws clusters only)                        | every aws SecretProviderClass — the Secrets Manager region                            |
 | `GCP_PROJECT_NUMBER`           | `123456789012`                                         | (published for component use)                                                         |
 | `GCP_REGION`                   | `us-central1`                                          | (published for component use)                                                         |
 | `PLATFORM_REGISTRY`            | `us-central1-docker.pkg.dev/…/platform`                | every RSIP + OCIRepository                                                            |
@@ -70,7 +93,7 @@ Kustomization (`${VAR}`, `${VAR:=default}`); optional surfaces use the empty-str
 | `GATEWAY_ADDRESS_NAME`         | `patchy-x-gateway`                                     | gateway (NamedAddress)                                                                |
 | `GATEWAY_IP`                   | `203.0.113.10`                                         | (informational)                                                                       |
 | `OTEL_PROJECT`                 | `x-patchy-app-ab12`                                    | otel-collector exporters                                                              |
-| `SECRET_PREFIX`                | `patchy-x-` (empty for unprefixed containers)          | every Secret Manager resourceName — distinct per-cluster secrets in a shared project  |
+| `SECRET_PREFIX`                | `patchy-x-` (empty for unprefixed containers)          | distinct per-cluster secret names — every GCP resourceName / AWS objectName           |
 | `STACK_COMPONENTS`             | `dex,patchy` (unset elects everything)                 | optional-tier election — see below                                                    |
 | `DEX_CONNECTORS`               | JSON array (typed `sso.connectors`; `[]` when sso off) | dex — arbitrary SSO federation, one entry per upstream connector (see below)          |
 | `DEX_DIRECTORY_SA`             | `dex-directory@….iam.gserviceaccount.com`              | dex KSA annotation (typed `sso.directory_sa`; empty when sso off or unset)            |
@@ -136,9 +159,10 @@ continuously; the release channels only ever see release-tagged artifacts. Clust
 ## Validation
 
 `make test` renders every component and the stack, substitutes the `tests/cluster-vars.env` fixture the way
-kustomize-controller postBuild does, renders each ResourceSet with `tests/inputs/` fixtures via the flux-operator CLI,
-and kubeconforms everything against flux + vendored CRD schemas (`tests/schemas/`, regenerated from upstream CRDs — see
-scripts/validate.sh).
+kustomize-controller postBuild does, renders each ResourceSet with `tests/inputs/` fixtures via the flux-operator CLI (a
+`<file>.<variant>.yaml` sibling fixture — e.g. `resourceset-secrets.aws.yaml` — re-renders the same ResourceSet with a
+different input set, so both sides of a `CLOUD` or election branch are validated), and kubeconforms everything against
+flux + vendored CRD schemas (`tests/schemas/`, regenerated from upstream CRDs — see scripts/validate.sh).
 
 ## Caveats
 

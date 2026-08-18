@@ -12,6 +12,13 @@
 # The same var reaches inside components for cross-component wiring: dex
 # only syncs / registers OAuth2 clients for elected relying parties, and
 # patchy's status page drops to rollups-only (no SSO) on dex-less clusters.
+#
+# CLOUD gates the secret-sync machinery: GKE ships Integrated Secret
+# Synchronization with the cluster, but on EKS the SecretSync CRD and its
+# controller are the secret-sync component -- emitted only on aws, and only
+# when a component that syncs secrets is elected. The consuming
+# Kustomizations depend on it there, so the CRD exists before any
+# ResourceSet renders a SecretSync against it.
 apiVersion: fluxcd.controlplane.io/v1
 kind: ResourceSet
 metadata:
@@ -19,9 +26,36 @@ metadata:
   namespace: flux-system
 spec:
   inputs:
-    - components: "${STACK_COMPONENTS:=dex,flux-web,patchy}"
+    - cloud: "${CLOUD:=google}"
+      components: "${STACK_COMPONENTS:=dex,flux-web,patchy}"
   resourcesTemplate: |
+    << $aws := eq inputs.cloud "aws" >>
     << $elected := splitList "," inputs.components >>
+    << if and $aws (or (has "dex" $elected) (has "patchy" $elected)) >>
+    ---
+    apiVersion: kustomize.toolkit.fluxcd.io/v1
+    kind: Kustomization
+    metadata:
+      name: secret-sync
+      namespace: flux-system
+    spec:
+      interval: 30m
+      retryInterval: 2m
+      timeout: 5m
+      wait: true
+      prune: true
+      # image verification must be live before the controller's pod admits
+      dependsOn:
+        - name: kyverno-policies
+      sourceRef:
+        kind: OCIRepository
+        name: flux-system
+      path: ./components/secret-sync
+      postBuild:
+        substituteFrom:
+          - kind: ConfigMap
+            name: cluster-vars
+    << end >>
     << if has "dex" $elected >>
     ---
     apiVersion: kustomize.toolkit.fluxcd.io/v1
@@ -38,6 +72,9 @@ spec:
       dependsOn:
         - name: kyverno-policies
         - name: gateway
+        << if $aws >>
+        - name: secret-sync
+        << end >>
       sourceRef:
         kind: OCIRepository
         name: flux-system
@@ -64,6 +101,9 @@ spec:
       prune: true
       dependsOn:
         - name: gateway
+        << if $aws >>
+        - name: secret-sync
+        << end >>
       sourceRef:
         kind: OCIRepository
         name: flux-system
@@ -95,6 +135,9 @@ spec:
       dependsOn:
         - name: kyverno-policies
         - name: gateway
+        << if $aws >>
+        - name: secret-sync
+        << end >>
       sourceRef:
         kind: OCIRepository
         name: flux-system

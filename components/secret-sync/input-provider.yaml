@@ -1,0 +1,23 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSetInputProvider
+metadata:
+  name: secret-sync
+  namespace: secret-sync
+  annotations:
+    fluxcd.controlplane.io/reconcileEvery: 30m
+spec:
+  # ECRArtifactTag unconditionally: this component only ever deploys on an
+  # EKS cluster (the optional ResourceSet emits its Kustomization on
+  # CLOUD=aws alone -- GKE ships the SecretSync machinery built in), so its
+  # platform registry is always ECR.
+  type: ECRArtifactTag
+  url: oci://${PLATFORM_REGISTRY}/charts/secrets-store-sync-controller
+  filter:
+    # Constraint order matters: kustomize drops the quotes, so the default
+    # must not start with '>' or YAML reads it as a folded block scalar.
+    # The chart is pre-1.0 (0.0.x at the time of writing), so the range is
+    # a ceiling only -- raise the floor as upstream stabilises.
+    semver: "${SECRET_SYNC_SEMVER:=<1.0.0 >=0.0.5}"
+    limit: 1

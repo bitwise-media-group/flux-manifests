@@ -4,9 +4,5 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
   - namespace.yaml
-  - service-accounts.yaml
-  - static-context.yaml
-  - health-check.yaml
   - input-provider.yaml
   - resourceset.yaml
-  - resourceset-secrets.yaml

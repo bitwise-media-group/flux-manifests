@@ -1,0 +1,8 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+
+# Sample inputs standing in for the ECRArtifactTag provider during
+# validation.
+- id: "1"
+  tag: "0.0.5"
+  digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000"

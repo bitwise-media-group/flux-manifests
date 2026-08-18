@@ -55,15 +55,22 @@ echo ">> rendering resourcesets with sample inputs"
 for rs in "$ROOT"/components/*/resourceset*.yaml; do
   comp="$(basename "$(dirname "$rs")")"
   file="$(basename "$rs" .yaml)"
-  inputs="$ROOT/tests/inputs/$comp/$file.yaml"
-  [[ -f "$inputs" ]] || { echo "missing test inputs $inputs for $rs" >&2; exit 1; }
+  [[ -f "$ROOT/tests/inputs/$comp/$file.yaml" ]] || { echo "missing test inputs tests/inputs/$comp/$file.yaml for $rs" >&2; exit 1; }
   substitute "$rs" "$BUILD/rs-$comp-$file.yaml"
-  inputs_flag="--inputs-from"
-  if grep -q "^kind: ResourceSetInputProvider$" "$inputs"; then
-    inputs_flag="--inputs-from-provider"
-  fi
-  flux-operator build resourceset -f "$BUILD/rs-$comp-$file.yaml" "$inputs_flag" "$inputs" \
-    > "$BUILD/rendered-$comp-$file.yaml"
+  # The primary fixture plus any <file>.<variant>.yaml siblings (e.g.
+  # resourceset-secrets.aws.yaml): each renders the same ResourceSet with a
+  # different input set, so both sides of an input branch (CLOUD, elections)
+  # get rendered and kubeconform-validated.
+  for inputs in "$ROOT/tests/inputs/$comp/$file.yaml" "$ROOT/tests/inputs/$comp/$file".*.yaml; do
+    [[ -f "$inputs" ]] || continue
+    variant="$(basename "$inputs" .yaml)"
+    inputs_flag="--inputs-from"
+    if grep -q "^kind: ResourceSetInputProvider$" "$inputs"; then
+      inputs_flag="--inputs-from-provider"
+    fi
+    flux-operator build resourceset -f "$BUILD/rs-$comp-$file.yaml" "$inputs_flag" "$inputs" \
+      > "$BUILD/rendered-$comp-$variant.yaml"
+  done
 done
 
 echo ">> kubeconform"
