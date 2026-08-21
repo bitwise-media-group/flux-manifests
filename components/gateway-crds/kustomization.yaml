@@ -1,0 +1,29 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+
+# The Gateway API CRDs Cilium requires, vendored verbatim from the standard
+# channel — applied only on aws, and only while GATEWAY_API_CRDS holds (the
+# gateway-crds ResourceSet in components/gateway emits the Kustomization
+# that points here). Not in stack/: this directory has no unconditional
+# entry point.
+#
+# The version and the set are Cilium's, not ours: v1.6.1 with these seven
+# required CRDs, per
+# https://docs.cilium.io/en/stable/network/servicemesh/gateway-api/gateway-api/#cilium-gateway-api-support
+# (TCPRoute/UDPRoute/ListenerSet are optional there and deliberately not
+# vendored — Cilium disables what it cannot find). Refresh with:
+#   v=v1.6.1
+#   for f in gatewayclasses gateways httproutes grpcroutes backendtlspolicies referencegrants tlsroutes; do
+#     curl -sfSL -o "gateway.networking.k8s.io_${f}.yaml" \
+#       "https://raw.githubusercontent.com/kubernetes-sigs/gateway-api/${v}/config/crd/standard/gateway.networking.k8s.io_${f}.yaml"
+#   done
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - gateway.networking.k8s.io_gatewayclasses.yaml
+  - gateway.networking.k8s.io_gateways.yaml
+  - gateway.networking.k8s.io_httproutes.yaml
+  - gateway.networking.k8s.io_grpcroutes.yaml
+  - gateway.networking.k8s.io_backendtlspolicies.yaml
+  - gateway.networking.k8s.io_referencegrants.yaml
+  - gateway.networking.k8s.io_tlsroutes.yaml

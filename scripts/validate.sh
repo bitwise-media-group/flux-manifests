@@ -69,8 +69,17 @@ render_resourcesets() { # render_resourcesets <prefix>
       if grep -q "^kind: ResourceSetInputProvider$" "$inputs"; then
         inputs_flag="--inputs-from-provider"
       fi
-      flux-operator build resourceset -f "$BUILD/rs-$prefix$comp-$file.yaml" "$inputs_flag" "$inputs" \
-        > "$BUILD/rendered-$prefix$comp-$variant.yaml"
+      # A fixture may sit on the empty side of an input branch (the CRDs
+      # install on google, a disabled election) and legitimately render
+      # nothing — the CLI treats that as an error, so allow exactly that
+      # failure and keep the empty render for kubeconform.
+      if ! flux-operator build resourceset -f "$BUILD/rs-$prefix$comp-$file.yaml" "$inputs_flag" "$inputs" \
+        > "$BUILD/rendered-$prefix$comp-$variant.yaml" 2> "$BUILD/rendered-$prefix$comp-$variant.err"; then
+        grep -q "no objects were generated" "$BUILD/rendered-$prefix$comp-$variant.err" \
+          || { cat "$BUILD/rendered-$prefix$comp-$variant.err" >&2; exit 1; }
+        : > "$BUILD/rendered-$prefix$comp-$variant.yaml"
+      fi
+      rm -f "$BUILD/rendered-$prefix$comp-$variant.err"
     done
   done
 }
@@ -91,7 +100,11 @@ render_resourcesets "keyed-"
 echo ">> kubeconform"
 # Component CRD schemas are vendored (converted from upstream CRDs); refresh with:
 #   curl <crd-yaml> | yq -o=json '.spec.versions[0].schema.openAPIV3Schema'
+# CustomResourceDefinition is skipped: the standalone schema catalogs carry no
+# schema for it (the vendored gateway-crds are upstream-generated and arrive
+# verbatim — validating them here would only re-check kubebuilder's output).
 kubeconform -strict -summary \
+  -skip CustomResourceDefinition \
   -schema-location default \
   -schema-location "https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/{{ .ResourceKind }}{{ .KindSuffix }}.json" \
   -schema-location "$ROOT/tests/schemas/{{ .ResourceKind }}-{{ .Group }}-{{ .ResourceAPIVersion }}.json" \

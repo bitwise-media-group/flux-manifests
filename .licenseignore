@@ -1,3 +1,4 @@
 tests/schemas/**
 tests/cluster-vars.env
 .build/**
+components/gateway-crds/gateway.networking.k8s.io_*.yaml

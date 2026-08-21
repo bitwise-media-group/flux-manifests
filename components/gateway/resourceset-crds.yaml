@@ -1,0 +1,56 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+
+# The Gateway API CRDs, aws only. GKE ships them with the cluster (enabling
+# the Gateway API is a cluster-side switch), but EKS installs nothing and
+# Cilium implements the API without owning its CRDs — so on aws the stack
+# installs the standard channel from the sync artifact, vendored under
+# components/gateway-crds.
+#
+# GATEWAY_API_CRDS gates the install (default on, so an aws terraform
+# predating the var still gets working Gateways) because AWS is expected to
+# eventually ship these CRDs as managed cluster furniture, as GKE already
+# does. The day that lands, the cluster flips the terraform toggle
+# (gateway.install_crds = false): this ResourceSet stops emitting the
+# Kustomization, flux-operator prunes it, and the CRDs themselves are
+# orphaned for EKS to adopt — never deleted (prune: false below), which
+# would take every Gateway and HTTPRoute down with them.
+#
+# Ordering is convergence, not dependsOn: the stack's gateway Kustomization
+# cannot conditionally depend on a Kustomization that only exists on aws,
+# so its ResourceSet simply retries until the CRDs establish. Note that
+# Cilium only enables its Gateway API controller when the CRDs are present
+# at agent/operator startup — on a fresh bootstrap the CRDs land after
+# terraform's cilium release, and the first cilium rollout (upgrade or
+# restart) after they establish is what activates the implementation.
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSet
+metadata:
+  name: gateway-crds
+  namespace: flux-system
+spec:
+  inputs:
+    - cloud: "${CLOUD:=google}"
+      install: "${GATEWAY_API_CRDS:=true}"
+  resourcesTemplate: |
+    << if and (eq inputs.cloud "aws") (eq inputs.install "true") >>
+    ---
+    apiVersion: kustomize.toolkit.fluxcd.io/v1
+    kind: Kustomization
+    metadata:
+      name: gateway-api-crds
+      namespace: flux-system
+    spec:
+      interval: 30m
+      retryInterval: 2m
+      timeout: 5m
+      wait: true
+      # Orphan on removal — see above. CRDs are the one place prune would
+      # cascade into data loss.
+      prune: false
+      sourceRef:
+        kind: OCIRepository
+        name: flux-system
+      path: ./components/gateway-crds
+      # No postBuild: the CRDs substitute nothing.
+    << end >>

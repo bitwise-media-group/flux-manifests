@@ -1,0 +1,7 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+
+# aws with the install handed over to EKS (gateway.install_crds = false):
+# nothing renders, and the pruned Kustomization orphans the CRDs.
+- cloud: aws
+  install: "false"
