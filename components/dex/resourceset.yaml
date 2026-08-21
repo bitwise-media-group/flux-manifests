@@ -38,6 +38,21 @@ spec:
       name: dex-image
   resourcesTemplate: |
     << $elected := splitList "," "${STACK_COMPONENTS:=dex,flux-web,patchy}" >>
+    << $keyed := ne "${SIGNED_IDENTITY_KMS_KEY:=}" "" >>
+    << if ne "${COSIGN_PUBLIC_KEY:=}" "" >>
+    ---
+    # The signing key's public half (published base64-encoded by terraform,
+    # so it drops straight into data); source-controller verifies the chart
+    # artifact against it in keyed mode.
+    apiVersion: v1
+    kind: Secret
+    metadata:
+      name: cosign-pub
+      namespace: dex
+    type: Opaque
+    data:
+      cosign.pub: ${COSIGN_PUBLIC_KEY:=}
+    << end >>
     ---
     apiVersion: source.toolkit.fluxcd.io/v1
     kind: OCIRepository
@@ -52,12 +67,18 @@ spec:
         tag: << inputs.dex.tag >>
       verify:
         provider: cosign
+        << if $keyed >>
+        # Keyed: verified against the KMS signing key's public half.
+        secretRef:
+          name: cosign-pub
+        << else >>
         matchOIDCIdentity:
           # single-quoted: the values are regexes whose backslashes a
           # double-quoted scalar would mangle when the rendered template
           # text is parsed
           - issuer: '${SIGNED_IDENTITY_ISSUER}'
             subject: '${SIGNED_IDENTITY_CHARTS}'
+        << end >>
     ---
     apiVersion: helm.toolkit.fluxcd.io/v2
     kind: HelmRelease

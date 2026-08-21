@@ -19,23 +19,66 @@ spec:
   inputsFrom:
     - kind: ResourceSetInputProvider
       name: flux
+  # The OCIRepositories ride resourcesTemplate rather than resources below
+  # (flux-operator renders both and merges them) because the verify block's
+  # SHAPE follows the signing mode: keyed clusters (SIGNED_IDENTITY_KMS_KEY
+  # set) verify against the cosign-pub public-key Secret — which already
+  # exists in flux-system, delivered by the bootstrap cluster-inputs chart —
+  # keyless clusters against the Fulcio identities. Conditional membership
+  # of a map needs a text template.
+  resourcesTemplate: |
+    << $keyed := ne "${SIGNED_IDENTITY_KMS_KEY:=}" "" >>
+    ---
+    apiVersion: source.toolkit.fluxcd.io/v1
+    kind: OCIRepository
+    metadata:
+      name: flux-operator
+      namespace: flux-system
+    spec:
+      interval: 1h
+      url: oci://${PLATFORM_REGISTRY}/charts/flux-operator
+      provider: "${OCI_PROVIDER:=gcp}"
+      ref:
+        tag: << inputs.tag >>
+      verify:
+        provider: cosign
+        << if $keyed >>
+        # Keyed: verified against the KMS signing key's public half.
+        secretRef:
+          name: cosign-pub
+        << else >>
+        # Keyless: the chart must carry a Fulcio certificate from the
+        # flux-containers publish workflow. Single-quoted: the values are
+        # regexes whose backslashes a double-quoted scalar would mangle.
+        matchOIDCIdentity:
+          - issuer: '${SIGNED_IDENTITY_ISSUER}'
+            subject: '${SIGNED_IDENTITY_CHARTS}'
+        << end >>
+    ---
+    apiVersion: source.toolkit.fluxcd.io/v1
+    kind: OCIRepository
+    metadata:
+      name: flux-instance
+      namespace: flux-system
+    spec:
+      interval: 1h
+      url: oci://${PLATFORM_REGISTRY}/charts/flux-instance
+      provider: "${OCI_PROVIDER:=gcp}"
+      ref:
+        # lockstep with flux-operator: released together upstream, one
+        # provider tag fits both
+        tag: << inputs.tag >>
+      verify:
+        provider: cosign
+        << if $keyed >>
+        secretRef:
+          name: cosign-pub
+        << else >>
+        matchOIDCIdentity:
+          - issuer: '${SIGNED_IDENTITY_ISSUER}'
+            subject: '${SIGNED_IDENTITY_CHARTS}'
+        << end >>
   resources:
-    - apiVersion: source.toolkit.fluxcd.io/v1
-      kind: OCIRepository
-      metadata:
-        name: flux-operator
-        namespace: flux-system
-      spec:
-        interval: 1h
-        url: oci://${PLATFORM_REGISTRY}/charts/flux-operator
-        provider: "${OCI_PROVIDER:=gcp}"
-        ref:
-          tag: << inputs.tag >>
-        verify:
-          provider: cosign
-          matchOIDCIdentity:
-            - issuer: "${SIGNED_IDENTITY_ISSUER}"
-              subject: "${SIGNED_IDENTITY_CHARTS}"
     - apiVersion: helm.toolkit.fluxcd.io/v2
       kind: HelmRelease
       metadata:
@@ -66,24 +109,6 @@ spec:
             # flux-web component, hot-reloaded by the operator -- it may
             # arrive late, or never on an SSO-less cluster (harmless).
             configSecretName: flux-web-auth
-    - apiVersion: source.toolkit.fluxcd.io/v1
-      kind: OCIRepository
-      metadata:
-        name: flux-instance
-        namespace: flux-system
-      spec:
-        interval: 1h
-        url: oci://${PLATFORM_REGISTRY}/charts/flux-instance
-        provider: "${OCI_PROVIDER:=gcp}"
-        ref:
-          # lockstep with flux-operator: released together upstream, one
-          # provider tag fits both
-          tag: << inputs.tag >>
-        verify:
-          provider: cosign
-          matchOIDCIdentity:
-            - issuer: "${SIGNED_IDENTITY_ISSUER}"
-              subject: "${SIGNED_IDENTITY_CHARTS}"
     - apiVersion: helm.toolkit.fluxcd.io/v2
       kind: HelmRelease
       metadata:
@@ -112,7 +137,9 @@ spec:
               version: "2.x"
               registry: ${CONTAINER_REGISTRY}/images/ghcr.io/fluxcd
             cluster:
-              type: gcp
+              # CLOUD names the cloud in this stack's vocabulary
+              # (aws/google); FluxInstance wants its own (aws/gcp).
+              type: << if eq "${CLOUD:=google}" "aws" >>aws<< else >>gcp<< end >>
               networkPolicy: true
             sync:
               kind: OCIRepository
@@ -135,18 +162,25 @@ spec:
                   target:
                     kind: Deployment
                     labelSelector: app.kubernetes.io/part-of=flux
-                # FluxInstance spec.sync has no verify field, so keyless
-                # signature enforcement on the manifests artifact rides in as
-                # a patch on the generated OCIRepository (named after the
-                # namespace, matching flux bootstrap).
+                # FluxInstance spec.sync has no verify field, so signature
+                # enforcement on the manifests artifact rides in as a patch
+                # on the generated OCIRepository (named after the namespace,
+                # matching flux bootstrap). Keyed clusters verify against
+                # the cosign-pub Secret the bootstrap delivered; keyless
+                # against the flux-manifests publish identity.
                 - patch: |
                     - op: add
                       path: /spec/verify
                       value:
                         provider: cosign
+                        << if ne "${SIGNED_IDENTITY_KMS_KEY:=}" "" >>
+                        secretRef:
+                          name: cosign-pub
+                        << else >>
                         matchOIDCIdentity:
                           - issuer: '${SIGNED_IDENTITY_ISSUER}'
                             subject: '${SIGNED_IDENTITY_MANIFESTS:=^https://github\.com/bitwise-media-group/flux-manifests/}'
+                        << end >>
                   target:
                     kind: OCIRepository
                     name: flux-system

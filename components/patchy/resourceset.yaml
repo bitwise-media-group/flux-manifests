@@ -48,7 +48,12 @@ spec:
         verify:
           provider: cosign
           matchOIDCIdentity:
-            - issuer: "${SIGNED_IDENTITY_ISSUER}"
+            # ghcr artifacts are keyless-signed by GitHub workflows whatever
+            # the platform's signing mode, so the issuer falls back to
+            # GitHub Actions on KMS-keyed clusters, where the cluster-vars
+            # convention publishes SIGNED_IDENTITY_ISSUER as the empty
+            # string (:= fires on empty, not just unset).
+            - issuer: '${SIGNED_IDENTITY_ISSUER:=^https://token\.actions\.githubusercontent\.com$}'
               # the chart is signed by patchy's own helm.yaml workflow; the
               # IMAGES are signed by the shared release workflow and carry a
               # different identity (SIGNED_IDENTITY_PATCHY_IMAGES in
@@ -373,8 +378,9 @@ spec:
         verify:
           provider: cosign
           matchOIDCIdentity:
-            # same helm.yaml workflow signs both charts
-            - issuer: "${SIGNED_IDENTITY_ISSUER}"
+            # same helm.yaml workflow signs both charts; same GitHub-issuer
+            # fallback for KMS-keyed clusters as the patchy chart above
+            - issuer: '${SIGNED_IDENTITY_ISSUER:=^https://token\.actions\.githubusercontent\.com$}'
               subject: '${SIGNED_IDENTITY_PATCHY:=^https://github\.com/bitwise-media-group/patchy/}'
   # The pipeline switch-on -- see the note at the top of this file for why
   # this one release is a text template while everything above is structured.

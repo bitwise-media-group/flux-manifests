@@ -46,32 +46,47 @@ done
 echo ">> building the stack"
 kustomize build "$ROOT/stack" > "$BUILD/stack.yaml"
 
-echo ">> rendering resourcesets with sample inputs"
 # Every ResourceSet must have a matching inputs fixture: tests/inputs/<component>/<file>.yaml
 # Two fixture shapes: a plain list of input sets (--inputs-from), or Static
 # ResourceSetInputProvider manifests (--inputs-from-provider) for ResourceSets
 # using the Permute strategy -- Permute namespaces inputs by provider name, and
 # only provider-shaped fixtures reproduce that in the render.
-for rs in "$ROOT"/components/*/resourceset*.yaml; do
-  comp="$(basename "$(dirname "$rs")")"
-  file="$(basename "$rs" .yaml)"
-  [[ -f "$ROOT/tests/inputs/$comp/$file.yaml" ]] || { echo "missing test inputs tests/inputs/$comp/$file.yaml for $rs" >&2; exit 1; }
-  substitute "$rs" "$BUILD/rs-$comp-$file.yaml"
-  # The primary fixture plus any <file>.<variant>.yaml siblings (e.g.
-  # resourceset-secrets.aws.yaml): each renders the same ResourceSet with a
-  # different input set, so both sides of an input branch (CLOUD, elections)
-  # get rendered and kubeconform-validated.
-  for inputs in "$ROOT/tests/inputs/$comp/$file.yaml" "$ROOT/tests/inputs/$comp/$file".*.yaml; do
-    [[ -f "$inputs" ]] || continue
-    variant="$(basename "$inputs" .yaml)"
-    inputs_flag="--inputs-from"
-    if grep -q "^kind: ResourceSetInputProvider$" "$inputs"; then
-      inputs_flag="--inputs-from-provider"
-    fi
-    flux-operator build resourceset -f "$BUILD/rs-$comp-$file.yaml" "$inputs_flag" "$inputs" \
-      > "$BUILD/rendered-$comp-$variant.yaml"
+render_resourcesets() { # render_resourcesets <prefix>
+  local prefix="$1" rs comp file inputs variant inputs_flag
+  for rs in "$ROOT"/components/*/resourceset*.yaml; do
+    comp="$(basename "$(dirname "$rs")")"
+    file="$(basename "$rs" .yaml)"
+    [[ -f "$ROOT/tests/inputs/$comp/$file.yaml" ]] || { echo "missing test inputs tests/inputs/$comp/$file.yaml for $rs" >&2; exit 1; }
+    substitute "$rs" "$BUILD/rs-$prefix$comp-$file.yaml"
+    # The primary fixture plus any <file>.<variant>.yaml siblings (e.g.
+    # resourceset-secrets.aws.yaml): each renders the same ResourceSet with a
+    # different input set, so both sides of an input branch (CLOUD, elections)
+    # get rendered and kubeconform-validated.
+    for inputs in "$ROOT/tests/inputs/$comp/$file.yaml" "$ROOT/tests/inputs/$comp/$file".*.yaml; do
+      [[ -f "$inputs" ]] || continue
+      variant="$(basename "$inputs" .yaml)"
+      inputs_flag="--inputs-from"
+      if grep -q "^kind: ResourceSetInputProvider$" "$inputs"; then
+        inputs_flag="--inputs-from-provider"
+      fi
+      flux-operator build resourceset -f "$BUILD/rs-$prefix$comp-$file.yaml" "$inputs_flag" "$inputs" \
+        > "$BUILD/rendered-$prefix$comp-$variant.yaml"
+    done
   done
-done
+}
+
+echo ">> rendering resourcesets with sample inputs"
+render_resourcesets ""
+
+echo ">> rendering resourcesets with the keyed-signing cluster vars"
+# Substitution branches (KMS signing mode, the aws provider election) live in
+# ${VAR}s baked in BEFORE the inputs render, so they need a second env, not a
+# fixture variant: overlay the keyed convention and render everything again.
+set -a
+# shellcheck disable=SC1091
+source "$ROOT/tests/cluster-vars-keyed.env"
+set +a
+render_resourcesets "keyed-"
 
 echo ">> kubeconform"
 # Component CRD schemas are vendored (converted from upstream CRDs); refresh with:

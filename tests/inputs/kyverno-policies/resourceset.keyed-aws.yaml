@@ -1,0 +1,7 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+
+# KMS mode on aws: the platform rule renders a keys attestor with the
+# awskms:/// URI scheme.
+- kmsKey: arn:aws:kms:eu-west-2:111111111111:key/00000000-0000-0000-0000-000000000000
+  cloud: aws

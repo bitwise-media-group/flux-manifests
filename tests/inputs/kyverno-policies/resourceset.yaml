@@ -1,0 +1,7 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+
+# Keyless mode: the platform rule renders its Fulcio keyless attestor. The
+# keyed renders come from the resourceset.keyed-*.yaml variants.
+- kmsKey: ""
+  cloud: google
