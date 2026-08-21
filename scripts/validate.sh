@@ -25,8 +25,25 @@ command -v yq >/dev/null || { echo "yq not found" >&2; exit 1; }
 # yq's envsubst also eats bare $VAR (dex's $-refs, Go template $variables) --
 # shield those behind a sentinel so the render matches the cluster.
 substitute() { # substitute <in-file> <out-file>
+  check_strict "$1"
   # shellcheck disable=SC2016 # ${1} and $$ are yq syntax; single quotes are deliberate
   yq ea '(.. | select(tag == "!!str")) |= (sub("\$([^{])"; "@BARE_DOLLAR@${1}") | envsubst | sub("@BARE_DOLLAR@"; "$$"))' "$1" > "$2"
+}
+
+# kustomize-controller substitutes in STRICT mode: a bare ${VAR} fails the
+# whole Kustomization on any cluster whose cluster-vars never publishes VAR
+# (a ${VAR:=default} never does -- := satisfies strict even when unset).
+# Mirror that here so the keyed pass, whose env unsets the vars the aws
+# module does not publish, fails the same way the cluster would. yq's own
+# envsubst(nu) is no substitute: it rejects ${VAR:=} defaults too.
+check_strict() { # check_strict <in-file>
+  local var
+  # shellcheck disable=SC2016 # the dollar-brace is the grep pattern, not an expansion
+  while IFS= read -r var; do
+    # ${!var+x}: set-ness via indirect expansion ([[ -v ]] needs bash 4+,
+    # and macOS ships 3.2)
+    [[ -n "${!var+x}" ]] || { echo "strict substitution: \${$var} in $1 but $var is not set in the env" >&2; exit 1; }
+  done < <(grep -oE '\$\{[A-Z][A-Z0-9_]*\}' "$1" | tr -d '${}' | sort -u)
 }
 
 # Load the sample cluster-vars into the environment for envsubst.
