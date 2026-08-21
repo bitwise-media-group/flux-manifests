@@ -118,6 +118,7 @@ Kustomization (`${VAR}`, `${VAR:=default}`); optional surfaces use the empty-str
 | `SCC_ASSET_SCOPE`              | `organizations/123456789012`                           | patchy — context-controller asset search scope; empty disables repository resolution  |
 | `SCC_ASSET_SA`                 | `patchy-assets@….iam.gserviceaccount.com`              | patchy — context-controller KSA annotation; the SA holding the org asset grant        |
 | `PATCHY_FALLBACK_REPOSITORY`   | `bitwisemedia/security` (empty for none)               | patchy — tracking issues for findings that resolve no repository of their own         |
+| `PATCHY_EVALUATION`            | default `false`                                        | patchy — evaluation controller + `evals.` edge; dex — evolve public client; rbac — submitter binding |
 | `*_SEMVER`                     | `>=3.8.0 <4.0.0`                                       | per-component chart range overrides                                                   |
 
 The `SCC_*` keys are the exception to the first sentence: the SCC pipeline is built by the `patchy` root, not by the

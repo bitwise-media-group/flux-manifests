@@ -9,14 +9,15 @@
 # features — the registries are the stable contract. kube-system itself is
 # additionally excluded at the webhook level by the kyverno chart defaults.
 #
-# Patchy is the one exception to the single-identity model: its images come
-# straight from ghcr, signed by goreleaser inside the shared release
-# workflow, so a second scoped entry trusts that identity for patchy's
+# Patchy and evolve are the exceptions to the single-identity model: their
+# images come straight from ghcr, signed by goreleaser inside the shared
+# release workflow, so a scoped entry per repo trusts that identity for its
 # images ONLY — every image is still verified by exactly one entry. The
-# Fulcio identity on that entry is the REUSABLE workflow's
-# job_workflow_ref (github-workflows, not patchy — unlike the chart, which
-# patchy's own helm.yaml signs), pinned to releases cut from the patchy
-# repo via the githubWorkflowRepository extension.
+# Fulcio identity on those entries is the REUSABLE workflow's
+# job_workflow_ref (github-workflows, not the source repo — unlike patchy's
+# chart, which its own helm.yaml signs), pinned to releases cut from each
+# repo via the githubWorkflowRepository extension. The evolve entry covers
+# the evolve-runner-<harness> images the evaluation controller's Jobs run.
 #
 # type: SigstoreBundle on both rules: the platform signs with cosign v3,
 # whose signatures are sigstore bundles attached via the OCI referrers API
@@ -54,8 +55,9 @@ spec:
             - "gke.gcr.io/*"
             - "gcr.io/gke-release/*"
             - "registry.k8s.io/*"
-            # verified by the dedicated patchy entry below
+            # verified by the dedicated patchy and evolve entries below
             - "ghcr.io/bitwise-media-group/patchy/*"
+            - "ghcr.io/bitwise-media-group/evolve-runner-*"
           type: SigstoreBundle
           failureAction: "${KYVERNO_FAILURE_ACTION:=Audit}"
           required: true
@@ -98,6 +100,29 @@ spec:
                     # this trust to releases cut FROM the patchy repo
                     additionalExtensions:
                       githubWorkflowRepository: bitwise-media-group/patchy
+                    # satisfies CRD validation only — see header comment
+                    rekor:
+                      url: https://rekor.sigstore.dev
+        # the evolve-runner images the evaluation controller's Jobs run:
+        # evolve releases through the same reusable workflow as patchy, so
+        # the entry mirrors the one above with only the repository pin
+        # changed
+        - imageReferences:
+            - "ghcr.io/bitwise-media-group/evolve-runner-*"
+          type: SigstoreBundle
+          failureAction: "${KYVERNO_FAILURE_ACTION:=Audit}"
+          required: true
+          # off for the same Audit-compatibility reason as the entry above
+          mutateDigest: false
+          verifyDigest: false
+          attestors:
+            - count: 1
+              entries:
+                - keyless:
+                    subjectRegExp: '${SIGNED_IDENTITY_PATCHY_IMAGES:=^https://github\.com/bitwise-media-group/github-workflows/}'
+                    issuerRegExp: "${SIGNED_IDENTITY_ISSUER}"
+                    additionalExtensions:
+                      githubWorkflowRepository: bitwise-media-group/evolve
                     # satisfies CRD validation only — see header comment
                     rekor:
                       url: https://rekor.sigstore.dev

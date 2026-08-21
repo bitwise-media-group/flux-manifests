@@ -2,8 +2,9 @@
 # SPDX-License-Identifier: MIT
 
 # The certificate for every platform hostname — patchy's webhook (machine)
-# edge and status page (human) edge, the dex OIDC issuer, and the Flux
-# status web UI — issued by Let's Encrypt via DNS-01 into the secret all
+# edge, status page (human) edge and evaluation API (evolve), the dex OIDC
+# issuer, and the Flux status web UI — issued by Let's Encrypt via DNS-01
+# into the secret all
 # Gateway listeners terminate with. Fully declarative: on cluster recreation
 # cert-manager re-issues into the same secret name and the listeners come
 # back serving valid TLS with no manual action.
@@ -17,6 +18,7 @@ spec:
   dnsNames:
     - integrations.${PATCHY_DOMAIN}
     - status.${PATCHY_DOMAIN}
+    - evals.${PATCHY_DOMAIN}
     - dex.${PATCHY_DOMAIN}
     - flux.${PATCHY_DOMAIN}
   issuerRef:

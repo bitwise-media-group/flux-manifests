@@ -254,6 +254,58 @@ spec:
           remediationController:
             nodeSelector:
               role: system
+          # The evolve-facing remote-evaluation API (workspace upload,
+          # submission, SSE monitoring) plus the reconcilers that run
+          # submitted evaluation units as sandboxed agent Jobs. Off by
+          # default (PATCHY_EVALUATION, terraform's patchy.evaluation);
+          # gated on dex too because the API has no unauthenticated
+          # posture -- without an issuer to point auth at, enabling it
+          # could only fail the release. Enabling also renders the
+          # source-controller's :9791 blob endpoint (workspace archives),
+          # all chart-internal.
+          evaluationController:
+            enabled: << and (eq "${PATCHY_EVALUATION:=false}" "true") (has "dex" (splitList "," "${STACK_COMPONENTS:=dex,flux-web,patchy}")) >>
+            # Inline rather than a synced Secret: evolve is a PUBLIC OIDC
+            # client (authorization-code + PKCE, no client secret), so
+            # this document contains nothing secret -- the chart wraps it
+            # in its own patchy-evaluation-auth Secret. No claims mapping:
+            # the API's defaults (username=email, groups=groups) are
+            # exactly the claims dex issues.
+            auth:
+              config:
+                mode: oidc
+                oidc:
+                  issuerURL: https://dex.${PATCHY_DOMAIN}
+                  clientID: evolve
+            host: evals.${PATCHY_DOMAIN}
+            httpRoute:
+              # no separate gate: the compound guard on enabled above
+              # already ties the route to dex being elected
+              enabled: true
+              parentRefs:
+                - name: platform
+                  namespace: gateway
+                  sectionName: https-evals
+            nodeSelector:
+              role: system
+            rbac:
+              # render the chart's user-tier ClusterRole
+              # (patchy-evaluations-submitter); the rbac component binds
+              # the developers group onto it
+              userRoles: true
+            # Which harness runners may execute evaluation units. Same
+            # AGENT_HARNESSES election as agent.runners above -- one
+            # variable keeps the evolve-runner fleet, the credential
+            # Secrets, and the claude egress broker in lockstep. Images
+            # stay on the chart defaults
+            # (ghcr.io/bitwise-media-group/evolve-runner-<harness>).
+            runners:
+              claude:
+                enabled: << has "claude" (splitList "," "${AGENT_HARNESSES:=claude}") >>
+              codex:
+                enabled: << has "codex" (splitList "," "${AGENT_HARNESSES:=claude}") >>
+              copilot:
+                enabled: << has "copilot" (splitList "," "${AGENT_HARNESSES:=claude}") >>
           statusServer:
             # the human edge, deliberately a separate hostname from the
             # webhook's: this one authenticates people, that one HMAC-signed
@@ -417,3 +469,29 @@ spec:
               secretRef:
                 name: patchy-github
               interval: 10m
+    << if and (eq "${PATCHY_EVALUATION:=false}" "true") (has "dex" (splitList "," "${STACK_COMPONENTS:=dex,flux-web,patchy}")) >>
+    ---
+    # Same GET-/ health-check mismatch as the two policies in
+    # health-check.yaml, for the evaluation controller's backend: probe the
+    # health port's readiness endpoint rather than the API serving port.
+    # Templated here rather than alongside them because this Service only
+    # exists under the evaluation election above -- a cluster without the
+    # controller must not carry a policy targeting an absent Service.
+    apiVersion: networking.gke.io/v1
+    kind: HealthCheckPolicy
+    metadata:
+      name: patchy-evaluations
+      namespace: patchy
+    spec:
+      default:
+        config:
+          type: HTTP
+          httpHealthCheck:
+            portSpecification: USE_FIXED_PORT
+            port: 8081
+            requestPath: /readyz
+      targetRef:
+        group: ""
+        kind: Service
+        name: patchy-evaluation-controller
+    << end >>

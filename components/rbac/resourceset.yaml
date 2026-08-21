@@ -23,6 +23,10 @@ spec:
       developers: "${RBAC_GROUP_DEVELOPERS}"
       devops: "${RBAC_GROUP_DEVOPS}"
       admins: "${RBAC_GROUP_ADMINS}"
+      # not a group: gates the evaluation-submitter binding below on the
+      # evaluation controller actually being deployed, so its chart-rendered
+      # ClusterRole exists to bind against
+      evaluation: "${PATCHY_EVALUATION:=false}"
   resourcesTemplate: |
     << if inputs.admins >>
     ---
@@ -131,4 +135,25 @@ spec:
       - kind: Group
         apiGroup: rbac.authorization.k8s.io
         name: << inputs.developers >>
+    << if eq inputs.evaluation "true" >>
+    ---
+    # developers on the evaluation API: submit evaluation units and watch
+    # their runs. Same tier as the findings-operator grant above; admins
+    # need no binding — cluster-admin already passes the server's
+    # SubjectAccessReviews. The role is chart-rendered
+    # (evaluationController.rbac.userRoles in the patchy HelmRelease).
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: RoleBinding
+    metadata:
+      name: developers-evaluations-submitter
+      namespace: patchy
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: patchy-evaluations-submitter
+    subjects:
+      - kind: Group
+        apiGroup: rbac.authorization.k8s.io
+        name: << inputs.developers >>
+    << end >>
     << end >>

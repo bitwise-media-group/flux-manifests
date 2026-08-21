@@ -15,8 +15,11 @@ spec:
   filter:
     # chart tags are bare chart versions (e.g. 0.7.0); chart version tracks
     # the app version 1:1 and the image tag defaults to v<version>. The
-    # floor is 0.10.0, and every step of the way down is a hard failure
+    # floor is 0.10.1, and every step of the way down is a hard failure
     # rather than a degraded render:
+    #   < 0.10.1 no evaluationController values surface -- the strict schema
+    #            fails the release outright, even with enabled: false, so
+    #            the floor is unconditional rather than eval-gated.
     #   < 0.10.0 no agent.runners.claude.provider or egressBroker values --
     #            the strict schema (additionalProperties: false) fails the
     #            release outright -- and the anthropic Secret moved from
@@ -34,5 +37,5 @@ spec:
     #            renamed the values surface wholesale.
     # Constraint order matters: kustomize drops the quotes, so the default
     # must not start with '>' or YAML reads it as a folded block scalar.
-    semver: "${PATCHY_SEMVER:=<1.0.0 >=0.10.0}"
+    semver: "${PATCHY_SEMVER:=<1.0.0 >=0.10.1}"
     limit: 1

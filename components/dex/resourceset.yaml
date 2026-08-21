@@ -142,6 +142,18 @@ spec:
               redirectURIs:
                 - https://status.${PATCHY_DOMAIN}/oauth2/callback
             << end >>
+            << if and (has "patchy" $elected) (eq "${PATCHY_EVALUATION:=false}" "true") >>
+            # The evolve CLI, for patchy's evaluation API: a PUBLIC client
+            # (authorization-code + PKCE), so no secretEnv -- there is no
+            # secret to mint or sync. No redirectURIs either: dex admits
+            # loopback redirects on any port for public clients without
+            # registration, which is exactly what a CLI's ephemeral local
+            # callback server needs (a registered literal could never
+            # match dex's exact-string comparison across ports).
+            - id: evolve
+              name: Evolve
+              public: true
+            << end >>
           << end >>
         httpRoute:
           enabled: true

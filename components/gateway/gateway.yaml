@@ -5,11 +5,11 @@
 # external Application Load Balancer (no ingress controller pods). It attaches
 # the terraform-reserved global static IP by name, so cluster destroy/recreate
 # serves the same address — DNS barely blips even before external-dns
-# reconverges. Four listeners, one per hostname, each admitting routes only
+# reconverges. Five listeners, one per hostname, each admitting routes only
 # from its owning namespace: patchy's machine edge (integration-controller
-# webhook receivers) and human edge (status page), the dex OIDC issuer, and
-# the Flux status web UI. All terminate with the one patchy-tls certificate,
-# which carries every name.
+# webhook receivers), human edge (status page) and evaluation API (evolve),
+# the dex OIDC issuer, and the Flux status web UI. All terminate with the
+# one patchy-tls certificate, which carries every name.
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
 metadata:
@@ -41,6 +41,21 @@ spec:
       protocol: HTTPS
       port: 443
       hostname: "status.${PATCHY_DOMAIN}"
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: patchy-tls
+      allowedRoutes:
+        namespaces:
+          from: Selector
+          selector:
+            matchLabels:
+              kubernetes.io/metadata.name: patchy
+    - name: https-evals
+      protocol: HTTPS
+      port: 443
+      hostname: "evals.${PATCHY_DOMAIN}"
       tls:
         mode: Terminate
         certificateRefs:
