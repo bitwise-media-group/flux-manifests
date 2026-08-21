@@ -1,0 +1,6 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+
+# google: the GKE global external ALB attaching the reserved address by
+# name. The NLB render comes from the resourceset.aws.yaml variant.
+- cloud: google
