@@ -2,12 +2,14 @@
 # SPDX-License-Identifier: MIT
 
 # external-dns publishes records for the platform Gateway's HTTPRoutes (the
-# patchy webhook host) into the delegated Cloud DNS zone. Cloud DNS access is
-# ambient: the pinned ServiceAccount name carries a direct Workload Identity
-# grant for roles/dns.admin, created by terraform. Records are owned per
-# cluster (txtOwnerId) and policy=sync prunes records for deleted routes —
-# which is what makes cluster destroy/recreate land on the same domain with
-# no manual DNS action.
+# patchy webhook host) into the delegated zone — Cloud DNS or Route53 by the
+# CLOUD var. Zone access is ambient either way: the pinned ServiceAccount
+# name carries a direct Workload Identity grant for roles/dns.admin on GKE,
+# and a Pod Identity association with the Route53 change/read role on EKS —
+# both created by terraform. Records are owned per cluster (txtOwnerId) and
+# policy=sync prunes records for deleted routes — which is what makes
+# cluster destroy/recreate land on the same domain with no manual DNS
+# action.
 apiVersion: fluxcd.controlplane.io/v1
 kind: ResourceSet
 metadata:
@@ -25,62 +27,106 @@ spec:
       name: external-dns
     - kind: ResourceSetInputProvider
       name: external-dns-image
-  resources:
-    - apiVersion: source.toolkit.fluxcd.io/v1
-      kind: OCIRepository
-      metadata:
+  # Everything rides resourcesTemplate: the verify block's SHAPE follows the
+  # signing mode (keyed clusters verify against the cosign-pub Secret
+  # rendered here from COSIGN_PUBLIC_KEY, keyless against the Fulcio
+  # identities), and the HelmRelease's provider values follow CLOUD.
+  resourcesTemplate: |
+    << $keyed := ne "${SIGNED_IDENTITY_KMS_KEY:=}" "" >>
+    << $aws := eq "${CLOUD:=google}" "aws" >>
+    << if ne "${COSIGN_PUBLIC_KEY:=}" "" >>
+    ---
+    # The signing key's public half (published base64-encoded by terraform,
+    # so it drops straight into data); source-controller verifies the chart
+    # artifact against it in keyed mode.
+    apiVersion: v1
+    kind: Secret
+    metadata:
+      name: cosign-pub
+      namespace: external-dns
+    type: Opaque
+    data:
+      cosign.pub: ${COSIGN_PUBLIC_KEY:=}
+    << end >>
+    ---
+    apiVersion: source.toolkit.fluxcd.io/v1
+    kind: OCIRepository
+    metadata:
+      name: external-dns
+      namespace: external-dns
+    spec:
+      interval: 1h
+      url: oci://${PLATFORM_REGISTRY}/charts/external-dns
+      provider: "${OCI_PROVIDER:=gcp}"
+      ref:
+        tag: << inputs.external_dns.tag >>
+      verify:
+        provider: cosign
+        << if $keyed >>
+        # Keyed: verified against the KMS signing key's public half.
+        secretRef:
+          name: cosign-pub
+        << else >>
+        # Keyless: the chart must carry a Fulcio certificate from the
+        # flux-containers publish workflow. Single-quoted: the values are
+        # regexes whose backslashes a double-quoted scalar would mangle.
+        matchOIDCIdentity:
+          - issuer: '${SIGNED_IDENTITY_ISSUER}'
+            subject: '${SIGNED_IDENTITY_CHARTS}'
+        << end >>
+    ---
+    apiVersion: helm.toolkit.fluxcd.io/v2
+    kind: HelmRelease
+    metadata:
+      name: external-dns
+      namespace: external-dns
+    spec:
+      interval: 30m
+      timeout: 5m
+      chartRef:
+        kind: OCIRepository
         name: external-dns
         namespace: external-dns
-      spec:
-        interval: 1h
-        url: oci://${PLATFORM_REGISTRY}/charts/external-dns
-        provider: "${OCI_PROVIDER:=gcp}"
-        ref:
-          tag: << inputs.external_dns.tag >>
-        verify:
-          provider: cosign
-          matchOIDCIdentity:
-            - issuer: "${SIGNED_IDENTITY_ISSUER}"
-              subject: "${SIGNED_IDENTITY_CHARTS}"
-    - apiVersion: helm.toolkit.fluxcd.io/v2
-      kind: HelmRelease
-      metadata:
-        name: external-dns
-        namespace: external-dns
-      spec:
-        interval: 30m
-        timeout: 5m
-        chartRef:
-          kind: OCIRepository
+      values:
+        image:
+          repository: ${CONTAINER_REGISTRY}/images/registry.k8s.io/external-dns/external-dns
+          # The mirror tracks this image independently of the chart; the
+          # tag comes from the external-dns-image provider, not the
+          # chart's appVersion default.
+          tag: << inputs.external_dns_image.tag >>
+        << if $aws >>
+        provider:
+          name: aws
+        # Pod Identity hands out credentials but not a region; the SDK
+        # needs one to construct the Route53 client.
+        env:
+          - name: AWS_DEFAULT_REGION
+            value: '${AWS_REGION:=}'
+        # Only the delegated hosted zone is ever touched.
+        zoneIdFilters:
+          - '${DNS_ZONE_ID:=}'
+        << else >>
+        provider:
+          name: google
+        extraArgs:
+          - --google-project=${GCP_PROJECT:=}
+          - --google-zone-visibility=public
+          - --zone-id-filter=${DNS_ZONE_NAME:=}
+        << end >>
+        # Only the delegated zone's domain is ever touched.
+        domainFilters:
+          - ${DNS_DOMAIN}
+        # Gateway API HTTPRoutes (patchy's webhook route) and Services.
+        sources:
+          - service
+          - gateway-httproute
+        # Per-cluster record ownership; sync (not upsert-only) prunes records
+        # when routes go away, so recreation converges cleanly.
+        txtOwnerId: ${CLUSTER_NAME}
+        policy: sync
+        # The terraform identity grant binds external-dns/external-dns —
+        # pin the name so the contract holds.
+        serviceAccount:
           name: external-dns
-          namespace: external-dns
-        values:
-          image:
-            repository: ${CONTAINER_REGISTRY}/images/registry.k8s.io/external-dns/external-dns
-            # The mirror tracks this image independently of the chart; the
-            # tag comes from the external-dns-image provider, not the
-            # chart's appVersion default.
-            tag: << inputs.external_dns_image.tag >>
-          provider:
-            name: google
-          extraArgs:
-            - --google-project=${GCP_PROJECT}
-            - --google-zone-visibility=public
-            - --zone-id-filter=${DNS_ZONE_NAME}
-          # Only the delegated zone's domain is ever touched.
-          domainFilters:
-            - ${DNS_DOMAIN}
-          # Gateway API HTTPRoutes (patchy's webhook route) and Services.
-          sources:
-            - service
-            - gateway-httproute
-          # Per-cluster record ownership; sync (not upsert-only) prunes records
-          # when routes go away, so recreation converges cleanly.
-          txtOwnerId: ${CLUSTER_NAME}
-          policy: sync
-          # The terraform Workload Identity grant binds
-          # external-dns/external-dns — pin the name so the contract holds.
-          serviceAccount:
-            name: external-dns
-          nodeSelector:
-            role: system
+        nodeSelector:
+          role: system

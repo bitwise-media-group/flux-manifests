@@ -1,0 +1,6 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+
+# google: both issuers render the ambient Cloud DNS solver. The route53
+# render comes from the resourceset.aws.yaml variant.
+- cloud: google

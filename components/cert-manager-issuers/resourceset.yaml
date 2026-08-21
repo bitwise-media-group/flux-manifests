@@ -1,0 +1,66 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+
+# Let's Encrypt cluster issuers, DNS-01 against the delegated zone — Cloud
+# DNS or Route53 by the CLOUD var. No credential secretRef either way:
+# ambient credentials solve the challenge (the controller's direct Workload
+# Identity grant on GKE; its Pod Identity association with the Route53
+# change/read role on EKS — both created by terraform, and ClusterIssuers
+# may use ambient credentials by default). The staging issuer exists for
+# cert debugging without burning prod rate limits.
+#
+# A ResourceSet rather than a plain manifest because the solver's SHAPE
+# follows the cloud — conditional membership of a map needs a text
+# template.
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSet
+metadata:
+  name: cert-manager-issuers
+  namespace: cert-manager
+spec:
+  inputs:
+    - cloud: "${CLOUD:=google}"
+  resourcesTemplate: |
+    << $aws := eq inputs.cloud "aws" >>
+    ---
+    apiVersion: cert-manager.io/v1
+    kind: ClusterIssuer
+    metadata:
+      name: letsencrypt-prod
+    spec:
+      acme:
+        server: https://acme-v02.api.letsencrypt.org/directory
+        email: ${ACME_EMAIL}
+        privateKeySecretRef:
+          name: letsencrypt-prod-account
+        solvers:
+          - dns01:
+              << if $aws >>
+              route53:
+                region: '${AWS_REGION:=}'
+                hostedZoneID: '${DNS_ZONE_ID:=}'
+              << else >>
+              cloudDNS:
+                project: '${GCP_PROJECT:=}'
+              << end >>
+    ---
+    apiVersion: cert-manager.io/v1
+    kind: ClusterIssuer
+    metadata:
+      name: letsencrypt-staging
+    spec:
+      acme:
+        server: https://acme-staging-v02.api.letsencrypt.org/directory
+        email: ${ACME_EMAIL}
+        privateKeySecretRef:
+          name: letsencrypt-staging-account
+        solvers:
+          - dns01:
+              << if $aws >>
+              route53:
+                region: '${AWS_REGION:=}'
+                hostedZoneID: '${DNS_ZONE_ID:=}'
+              << else >>
+              cloudDNS:
+                project: '${GCP_PROJECT:=}'
+              << end >>

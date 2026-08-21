@@ -2,13 +2,17 @@
 # SPDX-License-Identifier: MIT
 
 # The platform's OTLP endpoint — the whole observability stack (replaces a
-# prometheus stack entirely: GKE system metrics are Cloud Monitoring's job,
-# and patchy pushes OTLP). Workloads export to
+# prometheus stack entirely: managed system metrics are the cloud's job, and
+# patchy pushes OTLP). Workloads export to
 #   otel-collector.otel-collector.svc.cluster.local:4317   (gRPC, 4318 http)
-# and the collector forwards: traces + logs via the googlecloud exporter,
-# metrics via googlemanagedprometheus — both -contrib-only exporters, hence
-# the contrib image. GCP access is ambient (direct Workload Identity grant on
-# the pinned ServiceAccount, created by terraform).
+# and the collector forwards by CLOUD — on google, traces + logs via the
+# googlecloud exporter and metrics via googlemanagedprometheus; on aws,
+# traces to X-Ray, logs and metrics (EMF) to CloudWatch, plus an Amazon
+# Managed Prometheus remote-write target when OTEL_AMP_ENDPOINT is
+# published. All -contrib-only exporters, hence the contrib image. Cloud
+# access is ambient (a direct Workload Identity grant on GKE, a Pod
+# Identity association on EKS — both on the pinned ServiceAccount, created
+# by terraform).
 apiVersion: fluxcd.controlplane.io/v1
 kind: ResourceSet
 metadata:
@@ -26,90 +30,169 @@ spec:
       name: otel-collector
     - kind: ResourceSetInputProvider
       name: otel-collector-image
-  resources:
-    - apiVersion: source.toolkit.fluxcd.io/v1
-      kind: OCIRepository
-      metadata:
+  # Everything rides resourcesTemplate: the verify block's SHAPE follows the
+  # signing mode (keyed clusters verify against the cosign-pub Secret
+  # rendered here from COSIGN_PUBLIC_KEY, keyless against the Fulcio
+  # identities), and the HelmRelease's exporter pipeline follows CLOUD.
+  resourcesTemplate: |
+    << $keyed := ne "${SIGNED_IDENTITY_KMS_KEY:=}" "" >>
+    << $aws := eq "${CLOUD:=google}" "aws" >>
+    << $amp := ne "${OTEL_AMP_ENDPOINT:=}" "" >>
+    << if ne "${COSIGN_PUBLIC_KEY:=}" "" >>
+    ---
+    # The signing key's public half (published base64-encoded by terraform,
+    # so it drops straight into data); source-controller verifies the chart
+    # artifact against it in keyed mode.
+    apiVersion: v1
+    kind: Secret
+    metadata:
+      name: cosign-pub
+      namespace: otel-collector
+    type: Opaque
+    data:
+      cosign.pub: ${COSIGN_PUBLIC_KEY:=}
+    << end >>
+    ---
+    apiVersion: source.toolkit.fluxcd.io/v1
+    kind: OCIRepository
+    metadata:
+      name: otel-collector
+      namespace: otel-collector
+    spec:
+      interval: 1h
+      url: oci://${PLATFORM_REGISTRY}/charts/opentelemetry-collector
+      provider: "${OCI_PROVIDER:=gcp}"
+      ref:
+        tag: << inputs.otel_collector.tag >>
+      verify:
+        provider: cosign
+        << if $keyed >>
+        # Keyed: verified against the KMS signing key's public half.
+        secretRef:
+          name: cosign-pub
+        << else >>
+        # Keyless: the chart must carry a Fulcio certificate from the
+        # flux-containers publish workflow. Single-quoted: the values are
+        # regexes whose backslashes a double-quoted scalar would mangle.
+        matchOIDCIdentity:
+          - issuer: '${SIGNED_IDENTITY_ISSUER}'
+            subject: '${SIGNED_IDENTITY_CHARTS}'
+        << end >>
+    ---
+    apiVersion: helm.toolkit.fluxcd.io/v2
+    kind: HelmRelease
+    metadata:
+      name: otel-collector
+      namespace: otel-collector
+    spec:
+      interval: 30m
+      timeout: 5m
+      chartRef:
+        kind: OCIRepository
         name: otel-collector
         namespace: otel-collector
-      spec:
-        interval: 1h
-        url: oci://${PLATFORM_REGISTRY}/charts/opentelemetry-collector
-        provider: "${OCI_PROVIDER:=gcp}"
-        ref:
-          tag: << inputs.otel_collector.tag >>
-        verify:
-          provider: cosign
-          matchOIDCIdentity:
-            - issuer: "${SIGNED_IDENTITY_ISSUER}"
-              subject: "${SIGNED_IDENTITY_CHARTS}"
-    - apiVersion: helm.toolkit.fluxcd.io/v2
-      kind: HelmRelease
-      metadata:
-        name: otel-collector
-        namespace: otel-collector
-      spec:
-        interval: 30m
-        timeout: 5m
-        chartRef:
-          kind: OCIRepository
+      values:
+        # plain collector deployment — no operator, no sidecar injection;
+        # one shared pipeline is all the platform needs
+        mode: deployment
+        replicaCount: 2
+        image:
+          repository: ${CONTAINER_REGISTRY}/images/ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector-contrib
+          # The mirror tracks this image independently of the chart; the
+          # tag comes from the otel-collector-image provider, not the
+          # chart's appVersion default.
+          tag: << inputs.otel_collector_image.tag >>
+        command:
+          name: otelcol-contrib
+        # The terraform identity grant binds otel-collector/otel-collector
+        # — pin the name so the contract holds.
+        serviceAccount:
+          create: true
           name: otel-collector
-          namespace: otel-collector
-        values:
-          # plain collector deployment — no operator, no sidecar injection;
-          # one shared pipeline is all the platform needs
-          mode: deployment
-          replicaCount: 2
-          image:
-            repository: ${CONTAINER_REGISTRY}/images/ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector-contrib
-            # The mirror tracks this image independently of the chart; the
-            # tag comes from the otel-collector-image provider, not the
-            # chart's appVersion default.
-            tag: << inputs.otel_collector_image.tag >>
-          command:
-            name: otelcol-contrib
-          # The terraform Workload Identity grant binds
-          # otel-collector/otel-collector — pin the name so the contract holds.
-          serviceAccount:
-            create: true
-            name: otel-collector
-          nodeSelector:
-            role: system
-          config:
-            receivers:
-              otlp:
-                protocols:
-                  grpc:
-                    endpoint: 0.0.0.0:4317
-                  http:
-                    endpoint: 0.0.0.0:4318
-            processors:
-              memory_limiter:
-                check_interval: 1s
-                limit_percentage: 80
-                spike_limit_percentage: 25
-              # stamps gcp resource attributes so telemetry lands on the right
-              # monitored resources
-              resourcedetection:
-                detectors: [gcp]
-                timeout: 10s
-              batch: {}
-            exporters:
-              googlecloud:
-                project: ${OTEL_PROJECT}
-              googlemanagedprometheus:
-                project: ${OTEL_PROJECT}
-            service:
-              pipelines:
-                traces:
-                  receivers: [otlp]
-                  processors: [memory_limiter, resourcedetection, batch]
-                  exporters: [googlecloud]
-                metrics:
-                  receivers: [otlp]
-                  processors: [memory_limiter, resourcedetection, batch]
-                  exporters: [googlemanagedprometheus]
-                logs:
-                  receivers: [otlp]
-                  processors: [memory_limiter, resourcedetection, batch]
-                  exporters: [googlecloud]
+        nodeSelector:
+          role: system
+        config:
+          receivers:
+            otlp:
+              protocols:
+                grpc:
+                  endpoint: 0.0.0.0:4317
+                http:
+                  endpoint: 0.0.0.0:4318
+          processors:
+            memory_limiter:
+              check_interval: 1s
+              limit_percentage: 80
+              spike_limit_percentage: 25
+            # stamps cloud resource attributes so telemetry lands on the
+            # right monitored resources
+            resourcedetection:
+              detectors: << if $aws >>[eks, ec2]<< else >>[gcp]<< end >>
+              timeout: 10s
+            batch: {}
+          << if $aws >>
+          << if $amp >>
+          # AMP remote-write authenticates with SigV4 (aps:RemoteWrite via
+          # the Pod Identity association).
+          extensions:
+            sigv4auth:
+              region: '${OTEL_REGION:=}'
+              service: aps
+          << end >>
+          exporters:
+            awsxray:
+              region: '${OTEL_REGION:=}'
+            awscloudwatchlogs:
+              region: '${OTEL_REGION:=}'
+              log_group_name: /platform/${CLUSTER_NAME}/otel-collector
+              log_stream_name: otel-collector
+            # CloudWatch metrics travel as EMF log events (the logs:* half
+            # of the terraform grant), namespaced per cluster.
+            awsemf:
+              region: '${OTEL_REGION:=}'
+              namespace: platform/${CLUSTER_NAME}
+              log_group_name: /platform/${CLUSTER_NAME}/emf-metrics
+            << if $amp >>
+            prometheusremotewrite:
+              endpoint: '${OTEL_AMP_ENDPOINT:=}'
+              auth:
+                authenticator: sigv4auth
+            << end >>
+          service:
+            << if $amp >>
+            extensions: [sigv4auth]
+            << end >>
+            pipelines:
+              traces:
+                receivers: [otlp]
+                processors: [memory_limiter, resourcedetection, batch]
+                exporters: [awsxray]
+              metrics:
+                receivers: [otlp]
+                processors: [memory_limiter, resourcedetection, batch]
+                exporters: << if $amp >>[awsemf, prometheusremotewrite]<< else >>[awsemf]<< end >>
+              logs:
+                receivers: [otlp]
+                processors: [memory_limiter, resourcedetection, batch]
+                exporters: [awscloudwatchlogs]
+          << else >>
+          exporters:
+            googlecloud:
+              project: '${OTEL_PROJECT:=}'
+            googlemanagedprometheus:
+              project: '${OTEL_PROJECT:=}'
+          service:
+            pipelines:
+              traces:
+                receivers: [otlp]
+                processors: [memory_limiter, resourcedetection, batch]
+                exporters: [googlecloud]
+              metrics:
+                receivers: [otlp]
+                processors: [memory_limiter, resourcedetection, batch]
+                exporters: [googlemanagedprometheus]
+              logs:
+                receivers: [otlp]
+                processors: [memory_limiter, resourcedetection, batch]
+                exporters: [googlecloud]
+          << end >>
