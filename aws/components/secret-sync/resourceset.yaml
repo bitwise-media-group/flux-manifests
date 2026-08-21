@@ -14,11 +14,18 @@
 # depend on it.
 #
 # The controller impersonates each SecretSync's serviceAccountName: it
-# requests that KSA's token with the pods.eks.amazonaws.com audience and
-# hands it to the AWS provider, which exchanges it with the Pod Identity
-# Agent -- so the reader identity is the CONSUMER's Pod Identity
-# association (the *-secrets KSAs the cluster module associates with
-# Secrets Manager reader roles), never this controller's own.
+# requests that KSA's token via the TokenRequest API and hands it to the
+# AWS provider -- so the reader identity is the CONSUMER's (the *-secrets
+# KSAs the cluster module grants Secrets Manager reader roles), never
+# this controller's own. The exchange is IRSA, NOT Pod Identity: a
+# TokenRequest token has no pod behind it, so it lacks the
+# kubernetes.io/pod claim Pod Identity's AssumeRoleForPodIdentity
+# demands. The provider instead reads the role from the KSA's
+# eks.amazonaws.com/role-arn annotation (composed from the
+# SECRETS_ROLE_PREFIX cluster var in each companion's service accounts)
+# and assumes it with the sts.amazonaws.com-audience token -- which is
+# why every SecretProviderClass a SecretSync references carries
+# usePodIdentity: "false".
 apiVersion: fluxcd.controlplane.io/v1
 kind: ResourceSet
 metadata:
@@ -99,12 +106,13 @@ spec:
           image:
             repository: ${CONTAINER_REGISTRY}/images/registry.k8s.io/secrets-store-sync/controller
           # The audience the controller mints SecretSync KSA tokens with.
-          # pods.eks.amazonaws.com is the Pod Identity token audience --
-          # matching usePodIdentity: "true" in every SecretProviderClass
-          # this stack authors, so the AWS provider can exchange the token
-          # with the Pod Identity Agent for the KSA's association role.
+          # sts.amazonaws.com is the IRSA audience -- matching
+          # usePodIdentity: "false" in every SecretProviderClass this
+          # stack authors, so the AWS provider can AssumeRoleWithWebIdentity
+          # into the role each sync KSA's annotation names (see the header
+          # comment: the podless syncs cannot use Pod Identity).
           tokenRequestAudience:
-            - audience: pods.eks.amazonaws.com
+            - audience: sts.amazonaws.com
           # a small always-on singleton -> the system pool
           nodeSelector:
             role: system

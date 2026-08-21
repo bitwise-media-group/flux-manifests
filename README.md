@@ -107,11 +107,13 @@ and the Secret names the charts hardcode are identical on both clouds; only the 
   Secrets **without** a pod mounting a CSI volume — deploys as the aws tree's `secret-sync` component, emitted by the
   `optional` election when a secret-consuming component is elected (the companions then depend on it, so the
   `secret-sync.x-k8s.io/v1alpha1` CRD exists before any `SecretSync` is applied). Syncs render `provider: aws` with
-  `usePodIdentity: "true"` and Secrets Manager `objectName`s (`${SECRET_PREFIX}<name>` in `AWS_REGION`): the controller
-  requests each `SecretSync`'s KSA token with the `pods.eks.amazonaws.com` audience, so the reader identity is the
-  consumer KSA's **Pod Identity association** (the reader roles the cluster module creates), never the controller's own.
-  The mirrored chart is expected at `charts/secrets-store-sync-controller` in the platform registry
-  (`SECRET_SYNC_SEMVER` overrides its range).
+  `usePodIdentity: "false"` and Secrets Manager `objectName`s (`${SECRET_PREFIX}<name>` in `AWS_REGION`): the controller
+  requests each `SecretSync`'s KSA token with the `sts.amazonaws.com` audience, so the reader identity is the consumer
+  KSA's **IRSA role** (each sync KSA's `eks.amazonaws.com/role-arn` annotation, `${SECRETS_ROLE_PREFIX}<ns>-<sa>`, names
+  the reader role the cluster module creates), never the controller's own. IRSA rather than EKS Pod Identity because the
+  syncs are podless: a TokenRequest token with no pod behind it lacks the `kubernetes.io/pod` claim Pod Identity's
+  `AssumeRoleForPodIdentity` demands. The mirrored chart is expected at `charts/secrets-store-sync-controller` in the
+  platform registry (`SECRET_SYNC_SEMVER` overrides its range).
 
 ## The terraform ↔ flux contract (cluster-vars)
 
@@ -187,6 +189,7 @@ and only `common/` references them, always behind `:=` defaults):
 | `AWS_ACCOUNT_ID`                                                         | `123456789012`                     | (published for component use)                                                                                                        |
 | `AWS_REGION`                                                             | `eu-west-2`                        | every aws SecretProviderClass (Secrets Manager region), external-dns SDK region, issuers                                             |
 | `AWS_PARTITION`                                                          | `aws`                              | (published for component use)                                                                                                        |
+| `SECRETS_ROLE_PREFIX`                                                    | `arn:aws:iam::…:role/x-secrets-`   | every sync KSA's `eks.amazonaws.com/role-arn` annotation (`${SECRETS_ROLE_PREFIX}<ns>-<sa>` — the IRSA reader roles)                 |
 | `OCI_PROVIDER`                                                           | `aws`                              | OCIRepository registry auth (ECR via Pod Identity); the google tree relies on the manifests' `gcp` default instead                   |
 | `ARTIFACT_TAG_PROVIDER`                                                  | `ECRArtifactTag`                   | every platform-registry RSIP in the aws tree; the google tree relies on the `GARArtifactTag` default                                 |
 | `DNS_ZONE_ID`                                                            | `Z0123456789ABCDEFGHIJ`            | external-dns zone filter, issuers (route53 `hostedZoneID`)                                                                           |
