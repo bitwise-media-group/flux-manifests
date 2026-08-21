@@ -8,7 +8,7 @@ metadata:
   annotations:
     fluxcd.controlplane.io/reconcileEvery: 30m
 spec:
-  type: GARArtifactTag
+  type: "${ARTIFACT_TAG_PROVIDER:=GARArtifactTag}"
   url: oci://${PLATFORM_REGISTRY}/charts/external-dns
   filter:
     # Constraint order matters: kustomize drops the quotes, so the default
@@ -33,7 +33,7 @@ metadata:
   annotations:
     fluxcd.controlplane.io/reconcileEvery: 30m
 spec:
-  type: GARArtifactTag
+  type: "${ARTIFACT_TAG_PROVIDER:=GARArtifactTag}"
   url: oci://${PLATFORM_REGISTRY}/images/registry.k8s.io/external-dns/external-dns
   filter:
     semver: "${EXTERNAL_DNS_IMAGE_SEMVER:=<1.0.0 >=0.21.0}"

@@ -4,7 +4,8 @@
 # Lists chart versions from the platform registry; the newest tag in the
 # semver range flows into the ResourceSet, so a flux-containers publish rolls
 # out on the next reconcile. Auth is ambient: the flux-operator service
-# account reads Artifact Registry via its Workload Identity grant.
+# account reads the platform registry via its cloud identity grant
+# (Workload Identity on GKE, Pod Identity on EKS).
 apiVersion: fluxcd.controlplane.io/v1
 kind: ResourceSetInputProvider
 metadata:
@@ -13,7 +14,7 @@ metadata:
   annotations:
     fluxcd.controlplane.io/reconcileEvery: 30m
 spec:
-  type: GARArtifactTag
+  type: "${ARTIFACT_TAG_PROVIDER:=GARArtifactTag}"
   url: oci://${PLATFORM_REGISTRY}/charts/kyverno
   filter:
     # Constraint order matters: kustomize drops the quotes, so the default

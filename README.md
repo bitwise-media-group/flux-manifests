@@ -81,6 +81,7 @@ Kustomization (`${VAR}`, `${VAR:=default}`); optional surfaces use the empty-str
 | `PLATFORM_REGISTRY`            | `us-central1-docker.pkg.dev/…/platform`                | every RSIP + OCIRepository                                                                           |
 | `CONTAINER_REGISTRY`           | same                                                   | every HelmRelease image value (`images/<upstream-path>`)                                             |
 | `OCI_PROVIDER`                 | default `gcp`                                          | OCIRepository registry auth                                                                          |
+| `ARTIFACT_TAG_PROVIDER`        | default `GARArtifactTag` (`ECRArtifactTag`)            | every platform-registry RSIP — the tag-listing type, flux-operator's RSIP dialect of `OCI_PROVIDER`  |
 | `SIGNED_IDENTITY_ISSUER`       | `^https://token\.actions\.githubusercontent\.com$`     | verify blocks + kyverno policy                                                                       |
 | `SIGNED_IDENTITY_CHARTS`       | flux-containers publish@main regexp                    | chart OCIRepository verify                                                                           |
 | `SIGNED_IDENTITY_IMAGES`       | flux-containers publish@main regexp                    | kyverno policy                                                                                       |

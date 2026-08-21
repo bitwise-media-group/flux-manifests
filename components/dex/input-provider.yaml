@@ -8,7 +8,7 @@ metadata:
   annotations:
     fluxcd.controlplane.io/reconcileEvery: 30m
 spec:
-  type: GARArtifactTag
+  type: "${ARTIFACT_TAG_PROVIDER:=GARArtifactTag}"
   url: oci://${PLATFORM_REGISTRY}/charts/dex
   filter:
     # Constraint order matters: kustomize drops the quotes, so the default
@@ -34,7 +34,7 @@ metadata:
   annotations:
     fluxcd.controlplane.io/reconcileEvery: 30m
 spec:
-  type: GARArtifactTag
+  type: "${ARTIFACT_TAG_PROVIDER:=GARArtifactTag}"
   url: oci://${PLATFORM_REGISTRY}/images/ghcr.io/dexidp/dex
   filter:
     semver: "${DEX_IMAGE_SEMVER:=<3.0.0 >=2.44.0}"

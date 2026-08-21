@@ -8,7 +8,7 @@ metadata:
   annotations:
     fluxcd.controlplane.io/reconcileEvery: 30m
 spec:
-  type: GARArtifactTag
+  type: "${ARTIFACT_TAG_PROVIDER:=GARArtifactTag}"
   url: oci://${PLATFORM_REGISTRY}/charts/opentelemetry-collector
   filter:
     # Constraint order matters: kustomize drops the quotes, so the default
@@ -33,7 +33,7 @@ metadata:
   annotations:
     fluxcd.controlplane.io/reconcileEvery: 30m
 spec:
-  type: GARArtifactTag
+  type: "${ARTIFACT_TAG_PROVIDER:=GARArtifactTag}"
   url: oci://${PLATFORM_REGISTRY}/images/ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector-contrib
   filter:
     semver: "${OTEL_IMAGE_SEMVER:=<1.0.0 >=0.158.0}"
