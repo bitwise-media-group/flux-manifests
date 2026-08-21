@@ -16,20 +16,39 @@
 # Deployment/flux-system/flux-operator status: 'InProgress'". Pods predating
 # the gateway edge were auto-passed (LoadBalancerNegWithoutHealthCheck),
 # so this only bites from the first roll after https-flux started serving.
-apiVersion: networking.gke.io/v1
-kind: HealthCheckPolicy
+#
+# A ResourceSet rather than a plain manifest because HealthCheckPolicy is the
+# GKE Gateway dialect and the kind does not exist on an aws cluster — the
+# server-side dry-run rejects it before any value could branch, and kustomize
+# cannot conditionally include a resource. No aws counterpart is needed: the
+# NLB health-checks the cilium gateway Service's nodes, and backend endpoint
+# health is the kubelet's own readiness probe.
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSet
 metadata:
-  name: flux-web
+  name: flux-web-health-check
   namespace: flux-system
 spec:
-  default:
-    config:
-      type: HTTP
-      httpHealthCheck:
-        portSpecification: USE_FIXED_PORT
-        port: 8081
-        requestPath: /readyz
-  targetRef:
-    group: ""
-    kind: Service
-    name: flux-operator
+  inputs:
+    - cloud: "${CLOUD:=google}"
+  resourcesTemplate: |
+    << if ne inputs.cloud "aws" >>
+    ---
+    apiVersion: networking.gke.io/v1
+    kind: HealthCheckPolicy
+    metadata:
+      name: flux-web
+      namespace: flux-system
+    spec:
+      default:
+        config:
+          type: HTTP
+          httpHealthCheck:
+            portSpecification: USE_FIXED_PORT
+            port: 8081
+            requestPath: /readyz
+      targetRef:
+        group: ""
+        kind: Service
+        name: flux-operator
+    << end >>

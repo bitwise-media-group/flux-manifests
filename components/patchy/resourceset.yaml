@@ -228,7 +228,12 @@ spec:
                 # ownership labels. Empty turns the enhancer off entirely --
                 # the enhancer chain is built from a non-empty scope alone --
                 # so a cluster without SCC pays nothing for the key being
-                # present, and the CMDB enhancer below still runs.
+                # present, and the CMDB enhancer below still runs. The :=
+                # default (quoted, so empty stays a string) covers clusters
+                # whose terraform never publishes the var at all: every SCC_*
+                # var is a caller extra of the google patchy-app root, and a
+                # reference without a default fails strict substitution
+                # everywhere else.
                 #
                 # The scope must match the cloudasset.viewer grant terraform
                 # made, not exceed it: a search wider than the grant fails
@@ -238,7 +243,7 @@ spec:
                 # project's resources -- so the grant is org-level and lives
                 # in the cloud-accounts common root, the only tier that can
                 # write org IAM.
-                PATCHY_GCP_ASSET_SCOPE: ${SCC_ASSET_SCOPE}
+                PATCHY_GCP_ASSET_SCOPE: "${SCC_ASSET_SCOPE:=}"
             serviceAccount:
               # Workload Identity impersonation of the SA holding that
               # org-level grant. The <pool>[<ns>/<ksa>] binding on it is made
@@ -252,7 +257,7 @@ spec:
               # that does not exist. The scope above is empty there too, so
               # nothing ever asks for a Google token -- but an annotation that
               # lies is worth avoiding even when it is never read.
-              annotations: << if ne "${SCC_ASSET_SA}" "" >>{"iam.gke.io/gcp-service-account":"${SCC_ASSET_SA}"}<< else >>{}<< end >>
+              annotations: << if ne "${SCC_ASSET_SA:=}" "" >>{"iam.gke.io/gcp-service-account":"${SCC_ASSET_SA:=}"}<< else >>{}<< end >>
           investigationController:
             nodeSelector:
               role: system
@@ -420,18 +425,18 @@ spec:
                 issues:
                   enabled: true
                   approveComment: /approve
-                  << if ne "${PATCHY_FALLBACK_REPOSITORY}" "" >>
+                  << if ne "${PATCHY_FALLBACK_REPOSITORY:=}" "" >>
                   # Where a finding with no repository of its own gets its
                   # tracking issue. Cloud findings are the reason: most
                   # resources carry no scm-repository-* labels, and without a
                   # fallback those findings are visible only through kubectl
                   # and the status page. They still cannot be remediated --
                   # an issue is a human surface, not a work tree.
-                  fallbackRepository: ${PATCHY_FALLBACK_REPOSITORY}
+                  fallbackRepository: ${PATCHY_FALLBACK_REPOSITORY:=}
                   << end >>
                 codeScanningAlerts:
                   enabled: true
-          << if ne "${SCC_PUSH_SA}" "" >>
+          << if ne "${SCC_PUSH_SA:=}" "" >>
           # Security Command Center. Present only when terraform built the
           # pipeline (the patchy root's scc.tf); SCC_PUSH_SA is the whole
           # gate, since a cluster with a push identity has all of the facts
@@ -462,11 +467,11 @@ spec:
               googleCloud:
                 securityCommandCenter:
                   enabled: true
-                  audience: ${SCC_AUDIENCE}
-                  serviceAccount: ${SCC_PUSH_SA}
+                  audience: ${SCC_AUDIENCE:=}
+                  serviceAccount: ${SCC_PUSH_SA:=}
                   # numeric org id, for composing Console links on findings
                   # that carry no externalUri
-                  organization: "${SCC_ORGANIZATION}"
+                  organization: "${SCC_ORGANIZATION:=}"
           << end >>
         forges:
           - name: github
@@ -475,14 +480,16 @@ spec:
               secretRef:
                 name: patchy-github
               interval: 10m
-    << if and (eq "${PATCHY_EVALUATION:=false}" "true") (has "dex" (splitList "," "${STACK_COMPONENTS:=dex,flux-web,patchy}")) >>
+    << if and (eq "${PATCHY_EVALUATION:=false}" "true") (has "dex" (splitList "," "${STACK_COMPONENTS:=dex,flux-web,patchy}")) (ne "${CLOUD:=google}" "aws") >>
     ---
     # Same GET-/ health-check mismatch as the two policies in
-    # health-check.yaml, for the evaluation controller's backend: probe the
-    # health port's readiness endpoint rather than the API serving port.
-    # Templated here rather than alongside them because this Service only
-    # exists under the evaluation election above -- a cluster without the
-    # controller must not carry a policy targeting an absent Service.
+    # resourceset-health-check.yaml, for the evaluation controller's
+    # backend: probe the health port's readiness endpoint rather than the
+    # API serving port. Templated here rather than alongside them because
+    # this Service only exists under the evaluation election above -- a
+    # cluster without the controller must not carry a policy targeting an
+    # absent Service. Google-only like them too: HealthCheckPolicy is the
+    # GKE Gateway dialect, and the kind does not exist on an aws cluster.
     apiVersion: networking.gke.io/v1
     kind: HealthCheckPolicy
     metadata:

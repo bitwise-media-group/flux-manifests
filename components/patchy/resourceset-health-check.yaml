@@ -1,0 +1,67 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+
+# The GKE Gateway's managed load balancer health-checks backend pods with a
+# default GET / unless told otherwise, and the integration-controller serves
+# only /github/webhooks, /healthz and /readyz — so the NEG endpoints go
+# unhealthy and the gateway answers "no healthy upstream". Point the probe at
+# the readiness endpoint instead. Same treatment for the status page's
+# backend: its serving port answers GET / with the SPA today, but the real
+# readiness endpoint lives on the health port (:8081, admitted by both the
+# chart's NetworkPolicy and the all-TCP GFE prober firewall rule) — probe
+# that rather than coupling LB health to whatever the SPA shell happens to
+# return.
+#
+# A ResourceSet rather than a plain manifest because HealthCheckPolicy is the
+# GKE Gateway dialect and the kind does not exist on an aws cluster — the
+# server-side dry-run rejects it before any value could branch, and kustomize
+# cannot conditionally include a resource. No aws counterpart is needed: the
+# NLB health-checks the cilium gateway Service's nodes, and backend endpoint
+# health is the kubelet's own readiness probe.
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSet
+metadata:
+  name: patchy-health-check
+  namespace: patchy
+spec:
+  inputs:
+    - cloud: "${CLOUD:=google}"
+  resourcesTemplate: |
+    << if ne inputs.cloud "aws" >>
+    ---
+    apiVersion: networking.gke.io/v1
+    kind: HealthCheckPolicy
+    metadata:
+      name: patchy-webhook
+      namespace: patchy
+    spec:
+      default:
+        config:
+          type: HTTP
+          httpHealthCheck:
+            portSpecification: USE_FIXED_PORT
+            port: 8080
+            requestPath: /readyz
+      targetRef:
+        group: ""
+        kind: Service
+        name: patchy-integration-controller
+    ---
+    apiVersion: networking.gke.io/v1
+    kind: HealthCheckPolicy
+    metadata:
+      name: patchy-status
+      namespace: patchy
+    spec:
+      default:
+        config:
+          type: HTTP
+          httpHealthCheck:
+            portSpecification: USE_FIXED_PORT
+            port: 8081
+            requestPath: /readyz
+      targetRef:
+        group: ""
+        kind: Service
+        name: patchy-status-server
+    << end >>

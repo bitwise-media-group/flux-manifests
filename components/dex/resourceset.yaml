@@ -100,11 +100,15 @@ spec:
           # appVersion default.
           tag: << inputs.dex_image.tag >>
         # The terraform Workload Identity binding expects dex/dex annotated
-        # with the directory SA -- pin the name so the contract holds.
+        # with the directory SA -- pin the name so the contract holds. The
+        # var is GKE-only (terraform-google-gke-flux publishes it, the aws
+        # module does not), so it defaults empty and the annotation renders
+        # as a flow mapping -- ABSENT rather than empty, same trick as the
+        # patchy component's SCC_ASSET_SA -- on clusters without a google
+        # connector's directory identity.
         serviceAccount:
           name: dex
-          annotations:
-            iam.gke.io/gcp-service-account: ${DEX_DIRECTORY_SA}
+          annotations: << if ne "${DEX_DIRECTORY_SA:=}" "" >>{"iam.gke.io/gcp-service-account":"${DEX_DIRECTORY_SA:=}"}<< else >>{}<< end >>
         # Credentials from the synced dex-env Secret
         # (resourceset-secrets.yaml). dex expands $VAR in its config;
         # $-refs below are deliberately brace-less so flux postBuild

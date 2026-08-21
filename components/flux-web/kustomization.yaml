@@ -6,4 +6,4 @@ resources:
   - service-accounts.yaml
   - resourceset-secrets.yaml
   - httproute.yaml
-  - health-check.yaml
+  - resourceset-health-check.yaml

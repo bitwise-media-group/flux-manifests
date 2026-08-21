@@ -6,7 +6,7 @@ resources:
   - namespace.yaml
   - service-accounts.yaml
   - static-context.yaml
-  - health-check.yaml
   - input-provider.yaml
   - resourceset.yaml
+  - resourceset-health-check.yaml
   - resourceset-secrets.yaml
