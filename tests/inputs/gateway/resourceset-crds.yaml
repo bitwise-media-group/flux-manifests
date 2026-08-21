@@ -1,8 +1,0 @@
-# Copyright 2026 BitWise Media Group Ltd
-# SPDX-License-Identifier: MIT
-
-# google: GKE ships the Gateway API CRDs with the cluster, so the install
-# renders nothing regardless of the toggle. The aws render comes from the
-# resourceset-crds.aws.yaml variant.
-- cloud: google
-  install: "true"

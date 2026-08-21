@@ -1,0 +1,37 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+
+# Same GET-/ health-check mismatch as the two policies in
+# health-check.yaml, for the evaluation controller's backend: probe the
+# health port's readiness endpoint rather than the API serving port.
+# Templated rather than plain because this Service only exists under the
+# evaluation election -- a cluster without the controller must not carry a
+# policy targeting an absent Service. The election terms mirror
+# evaluationController.enabled in the patchy core's HelmRelease values.
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSet
+metadata:
+  name: patchy-health-check
+  namespace: patchy
+spec:
+  resourcesTemplate: |
+    << if and (eq "${PATCHY_EVALUATION:=false}" "true") (has "dex" (splitList "," "${STACK_COMPONENTS:=dex,flux-web,patchy}")) >>
+    ---
+    apiVersion: networking.gke.io/v1
+    kind: HealthCheckPolicy
+    metadata:
+      name: patchy-evaluations
+      namespace: patchy
+    spec:
+      default:
+        config:
+          type: HTTP
+          httpHealthCheck:
+            portSpecification: USE_FIXED_PORT
+            port: 8081
+            requestPath: /readyz
+      targetRef:
+        group: ""
+        kind: Service
+        name: patchy-evaluation-controller
+    << end >>

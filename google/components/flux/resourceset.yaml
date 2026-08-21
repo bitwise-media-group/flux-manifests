@@ -1,0 +1,224 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+
+# Flux managing flux: the operator and its FluxInstance ride the stack like
+# every other platform component, so pushing new charts to the mirror is the
+# only act that upgrades a cluster -- terraform's helm releases are
+# bootstrap-only and never reconciled again (ignore_changes; the HelmReleases
+# here adopt them by release name). Distribution manifests come EMBEDDED in
+# the mirrored operator image -- flux-containers pins the matching controller
+# images in the same reviewed PR (charts/flux-instance images.extra) -- so no
+# ungated upstream channel can move a cluster; see the postRenderer below for
+# the chart default that would reopen one.
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSet
+metadata:
+  name: flux
+  namespace: flux-system
+spec:
+  inputsFrom:
+    - kind: ResourceSetInputProvider
+      name: flux
+  # The OCIRepositories ride resourcesTemplate rather than resources below
+  # (flux-operator renders both and merges them) because the verify block's
+  # SHAPE follows the signing mode: keyed clusters (SIGNED_IDENTITY_KMS_KEY
+  # set) verify against the cosign-pub public-key Secret — which already
+  # exists in flux-system, delivered by the bootstrap cluster-inputs chart —
+  # keyless clusters against the Fulcio identities. Conditional membership
+  # of a map needs a text template.
+  resourcesTemplate: |
+    << $keyed := ne "${SIGNED_IDENTITY_KMS_KEY:=}" "" >>
+    ---
+    apiVersion: source.toolkit.fluxcd.io/v1
+    kind: OCIRepository
+    metadata:
+      name: flux-operator
+      namespace: flux-system
+    spec:
+      interval: 1h
+      url: oci://${PLATFORM_REGISTRY}/charts/flux-operator
+      provider: "${OCI_PROVIDER:=gcp}"
+      ref:
+        tag: << inputs.tag >>
+      verify:
+        provider: cosign
+        << if $keyed >>
+        # Keyed: verified against the KMS signing key's public half.
+        secretRef:
+          name: cosign-pub
+        << else >>
+        # Keyless: the chart must carry a Fulcio certificate from the
+        # flux-containers publish workflow. Single-quoted: the values are
+        # regexes whose backslashes a double-quoted scalar would mangle.
+        matchOIDCIdentity:
+          - issuer: '${SIGNED_IDENTITY_ISSUER}'
+            subject: '${SIGNED_IDENTITY_CHARTS}'
+        << end >>
+    ---
+    apiVersion: source.toolkit.fluxcd.io/v1
+    kind: OCIRepository
+    metadata:
+      name: flux-instance
+      namespace: flux-system
+    spec:
+      interval: 1h
+      url: oci://${PLATFORM_REGISTRY}/charts/flux-instance
+      provider: "${OCI_PROVIDER:=gcp}"
+      ref:
+        # lockstep with flux-operator: released together upstream, one
+        # provider tag fits both
+        tag: << inputs.tag >>
+      verify:
+        provider: cosign
+        << if $keyed >>
+        secretRef:
+          name: cosign-pub
+        << else >>
+        matchOIDCIdentity:
+          - issuer: '${SIGNED_IDENTITY_ISSUER}'
+            subject: '${SIGNED_IDENTITY_CHARTS}'
+        << end >>
+  resources:
+    - apiVersion: helm.toolkit.fluxcd.io/v2
+      kind: HelmRelease
+      metadata:
+        # Release name matches terraform's bootstrap helm_release so
+        # helm-controller adopts the existing release storage.
+        name: flux-operator
+        namespace: flux-system
+      spec:
+        interval: 30m
+        timeout: 5m
+        chartRef:
+          kind: OCIRepository
+          name: flux-operator
+          namespace: flux-system
+        values:
+          # The chart default points at upstream ghcr.io; the operator must
+          # run the mirrored copy (flux-containers images.lock) so the
+          # platform-signature policy verifies it like every other component.
+          image:
+            repository: ${CONTAINER_REGISTRY}/images/ghcr.io/controlplaneio-fluxcd/flux-operator
+          # Platform controllers stay on the always-on system pool, never on
+          # auto-provisioned workload capacity.
+          nodeSelector:
+            role: system
+          web:
+            # The manifests contract's fixed name for the flux status UI's
+            # Web Config Secret: composed by terraform (sso), synced by the
+            # flux-web component, hot-reloaded by the operator -- it may
+            # arrive late, or never on an SSO-less cluster (harmless).
+            configSecretName: flux-web-auth
+    - apiVersion: helm.toolkit.fluxcd.io/v2
+      kind: HelmRelease
+      metadata:
+        # "flux", matching terraform's bootstrap release name (adoption, as
+        # above); renders the FluxInstance CR the operator materialises the
+        # controllers from.
+        name: flux
+        namespace: flux-system
+      spec:
+        interval: 30m
+        timeout: 5m
+        # The operator must upgrade first: the FluxInstance this chart
+        # renders can carry fields only the matching operator understands.
+        dependsOn:
+          - name: flux-operator
+        chartRef:
+          kind: OCIRepository
+          name: flux-instance
+          namespace: flux-system
+        values:
+          instance:
+            distribution:
+              # Minor/patch selection happens against the manifests EMBEDDED
+              # in the mirrored operator image (see postRenderers), so this
+              # range never reaches out of the estate.
+              version: "2.x"
+              registry: ${CONTAINER_REGISTRY}/images/ghcr.io/fluxcd
+            cluster:
+              # This tree is the google fork of the manifests; FluxInstance
+              # wants its own vocabulary (aws/gcp).
+              type: gcp
+              networkPolicy: true
+            sync:
+              kind: OCIRepository
+              provider: "${OCI_PROVIDER:=gcp}" # Artifact Registry auth via Workload Identity
+              url: oci://${PLATFORM_REGISTRY}/flux-manifests
+              # The release channel: dev clusters track edge, production
+              # tracks stable (paired with the matching signing subject).
+              ref: "${FLUX_SYNC_CHANNEL:=stable}"
+              # The fixed point that keeps a running cluster on this tree:
+              # the artifact ships every tree, and this literal re-asserts
+              # the google entrypoint on each reconcile.
+              path: google
+              interval: 5m
+            kustomize:
+              patches:
+                # Flux controllers onto the system pool, matching the
+                # operator's own nodeSelector above.
+                - patch: |
+                    - op: add
+                      path: /spec/template/spec/nodeSelector
+                      value:
+                        role: system
+                  target:
+                    kind: Deployment
+                    labelSelector: app.kubernetes.io/part-of=flux
+                # FluxInstance spec.sync has no verify field, so signature
+                # enforcement on the manifests artifact rides in as a patch
+                # on the generated OCIRepository (named after the namespace,
+                # matching flux bootstrap). Keyed clusters verify against
+                # the cosign-pub Secret the bootstrap delivered; keyless
+                # against the flux-manifests publish identity.
+                - patch: |
+                    - op: add
+                      path: /spec/verify
+                      value:
+                        provider: cosign
+                        << if ne "${SIGNED_IDENTITY_KMS_KEY:=}" "" >>
+                        secretRef:
+                          name: cosign-pub
+                        << else >>
+                        matchOIDCIdentity:
+                          - issuer: '${SIGNED_IDENTITY_ISSUER}'
+                            subject: '${SIGNED_IDENTITY_MANIFESTS:=^https://github\.com/bitwise-media-group/flux-manifests/}'
+                        << end >>
+                  target:
+                    kind: OCIRepository
+                    name: flux-system
+                # helm-controller appends the OCI artifact digest to the chart
+                # version as semver build metadata (0.56.0+<digest12>) for
+                # every chartRef OCIRepository, so a moved tag still triggers
+                # an upgrade. That synthetic version lands in the helm release
+                # storage, and terraform -- which shares this release by name
+                # (adoption, above) -- reads it back as the version to plan
+                # against, then fails to locate a chart tag that was never
+                # published. Nothing here needs the digest: every chart
+                # OCIRepository takes its tag from a semver
+                # ResourceSetInputProvider (limit 1), so a real upgrade always
+                # moves the version itself, and flux-containers refuses to
+                # re-push an existing tag.
+                - patch: |
+                    - op: add
+                      path: /spec/template/spec/containers/0/args/-
+                      value: --feature-gates=DisableChartDigestTracking=true
+                  target:
+                    kind: Deployment
+                    name: helm-controller
+        postRenderers:
+          # The chart unconditionally renders distribution.artifact with its
+          # default (upstream's flux-operator-manifests:latest) -- an ungated
+          # channel that delivers controller patch bumps before the mirror
+          # carries their images (and the operator can't authenticate that
+          # pull to Artifact Registry anyway; secret-only auth). Dropping the
+          # field makes the operator build purely from its embedded
+          # manifests. `remove` fails loudly if the chart ever stops
+          # rendering the field -- delete this patch when that happens.
+          - kustomize:
+              patches:
+                - patch: |
+                    - op: remove
+                      path: /spec/distribution/artifact
+                  target:
+                    kind: FluxInstance

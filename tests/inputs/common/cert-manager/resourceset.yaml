@@ -1,0 +1,9 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+
+# Sample inputs standing in for the tag provider during validation
+# (GARArtifactTag on google, ECRArtifactTag on aws -- the fixture shape is
+# identical, so the common cores and the per-tree flux fork share it).
+- id: "1"
+  tag: "v1.21.0"
+  digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000"

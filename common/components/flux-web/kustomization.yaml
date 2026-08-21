@@ -1,0 +1,12 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+#
+# The flux-web-auth secret sync (and its flux-web-secrets ServiceAccount),
+# plus the GKE health-check policy, live in the per-cloud flux-web-cloud
+# companion component (aws/google), which this core's emitted Kustomization
+# depends on -- so the SSO config Secret exists before the operator looks
+# for it.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - httproute.yaml

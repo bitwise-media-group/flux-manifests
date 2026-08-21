@@ -1,7 +1,0 @@
-# Copyright 2026 BitWise Media Group Ltd
-# SPDX-License-Identifier: MIT
-
-# aws with the install enabled (the default): emits the gateway-api-crds
-# Kustomization applying the vendored standard channel.
-- cloud: aws
-  install: "true"

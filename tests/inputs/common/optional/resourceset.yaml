@@ -1,0 +1,7 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+
+# Everything elected, so every optional-tier Kustomization -- each core
+# and its <name>-cloud companion (plus secret-sync in the aws tree) --
+# renders and gets kubeconform-validated.
+- components: dex,flux-web,patchy

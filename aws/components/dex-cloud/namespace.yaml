@@ -1,0 +1,11 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+#
+# The namespace rides this companion rather than the dex core: the core's
+# emitted Kustomization depends on this one, so on a fresh cluster the
+# secret sync below could never come up if it had to wait for the core to
+# create its own namespace.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: dex

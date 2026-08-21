@@ -1,0 +1,41 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+
+# The GKE Gateway's managed load balancer health-checks backend pods with a
+# default GET / on the serving port unless told otherwise, and :9080 is the
+# SSO-fronted status UI — it does not answer 200 to an unauthenticated probe.
+# The operator's real readiness endpoint is /readyz on the health port
+# (:8081), so probe that rather than coupling LB health to whatever the web
+# UI's root returns for an anonymous request.
+#
+# Without this the NEG endpoints never go healthy, and because the Service is
+# NEG-backed every flux-operator pod carries a
+# cloud.google.com/load-balancer-neg-ready readiness gate: the pod stays
+# NotReady with its container passing, the Deployment rollout never completes,
+# and the flux HelmRelease fails on "timeout waiting for
+# Deployment/flux-system/flux-operator status: 'InProgress'". Pods predating
+# the gateway edge were auto-passed (LoadBalancerNegWithoutHealthCheck),
+# so this only bites from the first roll after https-flux started serving.
+#
+# HealthCheckPolicy is the GKE Gateway dialect, which is why this lives in
+# the google companion: the kind does not exist on an aws cluster. No aws
+# counterpart is needed there — the NLB health-checks the cilium gateway
+# Service's nodes, and backend endpoint health is the kubelet's own
+# readiness probe.
+apiVersion: networking.gke.io/v1
+kind: HealthCheckPolicy
+metadata:
+  name: flux-web
+  namespace: flux-system
+spec:
+  default:
+    config:
+      type: HTTP
+      httpHealthCheck:
+        portSpecification: USE_FIXED_PORT
+        port: 8081
+        requestPath: /readyz
+  targetRef:
+    group: ""
+    kind: Service
+    name: flux-operator

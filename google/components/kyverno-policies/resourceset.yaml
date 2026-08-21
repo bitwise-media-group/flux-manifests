@@ -1,0 +1,160 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+
+# Every pod image must carry a cosign signature from the platform publish
+# workflow, except cloud-managed system images (the cloud signs and delivers
+# those, not the platform pipeline). Image-based exclusion is deliberate:
+# GKE system pods appear in kube-system, gmp-system and gke-managed-*
+# namespaces, and new managed namespaces appear with cluster features — the
+# registries are the stable contract. kube-system itself is additionally
+# excluded at the webhook level by the kyverno chart defaults.
+#
+# The policy rides a ResourceSet rather than a plain manifest because the
+# attestor SHAPE follows the signing mode: keyless clusters trust the Fulcio
+# identities, KMS-keyed clusters (SIGNED_IDENTITY_KMS_KEY set) resolve the
+# signing key through the cloud KMS API at admission — the terraform grants
+# the kyverno controllers GetPublicKey/Verify on the key. Conditional
+# membership of a list needs a text template.
+#
+# Patchy and evolve are the exceptions to the single-identity model: their
+# images come straight from ghcr, signed by goreleaser inside the shared
+# release workflow — keyless whatever the platform's signing mode, so those
+# entries' issuer falls back to GitHub Actions on keyed clusters (where
+# SIGNED_IDENTITY_ISSUER is published empty). A scoped entry per repo trusts
+# that identity for its images ONLY — every image is still verified by
+# exactly one entry. The Fulcio identity on those entries is the REUSABLE
+# workflow's job_workflow_ref (github-workflows, not the source repo —
+# unlike patchy's chart, which its own helm.yaml signs), pinned to releases
+# cut from each repo via the githubWorkflowRepository extension. The evolve
+# entry covers the evolve-runner-<harness> images the evaluation
+# controller's Jobs run.
+#
+# type: SigstoreBundle on all rules: the platform signs with cosign v3,
+# whose signatures are sigstore bundles attached via the OCI referrers API
+# — NOT the legacy .sig tag, which is all the default Cosign verification
+# type reads (--use-signing-config=false in the publish pipelines selects
+# the v2 trust services, it does not change the storage format). The tlog
+# entry travels inside the bundle and kyverno checks it offline against the
+# sigstore TUF trusted root; the rekor.url on each keyless entry exists only
+# because kyverno's CRD validation demands rekor-or-roots on every keyless
+# attestor regardless of type. Flux verifies the same bundles independently
+# (source-controller >= v1.8 / Flux 2.8).
+#
+# failureAction starts as Audit via the cluster var default: soak a fresh
+# cluster, audit the PolicyReports, then flip KYVERNO_FAILURE_ACTION=Enforce
+# in terraform's flux.cluster_vars — no manifests release needed.
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSet
+metadata:
+  name: kyverno-policies
+  namespace: kyverno
+spec:
+  resourcesTemplate: |
+    # The KMS key is compared inline, not via spec.inputs: post-build
+    # substitution turns an empty input into null, the key vanishes on
+    # apply, and the template's missingkey=error fails the build.
+    << $keyed := ne "${SIGNED_IDENTITY_KMS_KEY:=}" "" >>
+    ---
+    apiVersion: kyverno.io/v1
+    kind: ClusterPolicy
+    metadata:
+      name: verify-platform-signature
+    spec:
+      webhookConfiguration:
+        failurePolicy: Fail
+        timeoutSeconds: 30
+      rules:
+        - name: verify-platform-signature
+          match:
+            any:
+              - resources:
+                  kinds:
+                    - Pod
+          verifyImages:
+            - imageReferences:
+                - "*"
+              skipImageReferences:
+                - "gke.gcr.io/*"
+                - "gcr.io/gke-release/*"
+                - "registry.k8s.io/*"
+                # verified by the dedicated patchy and evolve entries below
+                - "ghcr.io/bitwise-media-group/patchy/*"
+                - "ghcr.io/bitwise-media-group/evolve-runner-*"
+              type: SigstoreBundle
+              failureAction: "${KYVERNO_FAILURE_ACTION:=Audit}"
+              required: true
+              # Digest rewriting stays off: kyverno rejects mutateDigest
+              # under an Audit failureAction, and failureAction is
+              # cluster-var-driven, so the policy must be valid in both
+              # modes. verifyDigest follows suit — without the mutation,
+              # tag-referenced images carry no digest and would fail that
+              # check spuriously. What is verified is the cosign signature
+              # on whatever the tag resolves to at admission.
+              mutateDigest: false
+              verifyDigest: false
+              attestors:
+                - count: 1
+                  entries:
+                    << if $keyed >>
+                    # Keyed: the signing key, resolved through the Cloud
+                    # KMS API in cosign's gcpkms URI scheme.
+                    - keys:
+                        kms: gcpkms://${SIGNED_IDENTITY_KMS_KEY}
+                    << else >>
+                    - keyless:
+                        subjectRegExp: '${SIGNED_IDENTITY_IMAGES}'
+                        issuerRegExp: '${SIGNED_IDENTITY_ISSUER}'
+                        # satisfies CRD validation only — see header comment
+                        rekor:
+                          url: https://rekor.sigstore.dev
+                    << end >>
+            - imageReferences:
+                - "ghcr.io/bitwise-media-group/patchy/*"
+              type: SigstoreBundle
+              failureAction: "${KYVERNO_FAILURE_ACTION:=Audit}"
+              required: true
+              # off for the same Audit-compatibility reason as the entry above
+              mutateDigest: false
+              verifyDigest: false
+              attestors:
+                - count: 1
+                  entries:
+                    - keyless:
+                        # the reusable release workflow's identity
+                        # (goreleaser signs inside it) — NOT the patchy
+                        # repo's, which signs only the chart
+                        # (components/patchy/resourceset.yaml)
+                        subjectRegExp: '${SIGNED_IDENTITY_PATCHY_IMAGES:=^https://github\.com/bitwise-media-group/github-workflows/}'
+                        issuerRegExp: '${SIGNED_IDENTITY_ISSUER:=^https://token\.actions\.githubusercontent\.com$}'
+                        # the reusable workflow signs for every repo that
+                        # calls it; the Fulcio githubWorkflowRepository
+                        # extension pins this trust to releases cut FROM
+                        # the patchy repo
+                        additionalExtensions:
+                          githubWorkflowRepository: bitwise-media-group/patchy
+                        # satisfies CRD validation only — see header comment
+                        rekor:
+                          url: https://rekor.sigstore.dev
+            # the evolve-runner images the evaluation controller's Jobs
+            # run: evolve releases through the same reusable workflow as
+            # patchy, so the entry mirrors the one above with only the
+            # repository pin changed
+            - imageReferences:
+                - "ghcr.io/bitwise-media-group/evolve-runner-*"
+              type: SigstoreBundle
+              failureAction: "${KYVERNO_FAILURE_ACTION:=Audit}"
+              required: true
+              # off for the same Audit-compatibility reason as the entry above
+              mutateDigest: false
+              verifyDigest: false
+              attestors:
+                - count: 1
+                  entries:
+                    - keyless:
+                        subjectRegExp: '${SIGNED_IDENTITY_PATCHY_IMAGES:=^https://github\.com/bitwise-media-group/github-workflows/}'
+                        issuerRegExp: '${SIGNED_IDENTITY_ISSUER:=^https://token\.actions\.githubusercontent\.com$}'
+                        additionalExtensions:
+                          githubWorkflowRepository: bitwise-media-group/evolve
+                        # satisfies CRD validation only — see header comment
+                        rekor:
+                          url: https://rekor.sigstore.dev

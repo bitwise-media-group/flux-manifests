@@ -1,0 +1,14 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+#
+# Writes into the patchy/patchy-agents namespaces terraform pre-creates
+# (flux.namespaces); the patchy core adopts them to stamp the Pod
+# Security labels.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - service-accounts.yaml
+  - static-context.yaml
+  - resourceset-secrets.yaml
+  - health-check.yaml
+  - resourceset-health-check.yaml

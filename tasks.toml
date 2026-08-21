@@ -10,17 +10,22 @@ description = "render + schema-validate the stack (kustomize build, substitution
 run = "./scripts/validate.sh"
 
 # Repo-local replacement for the toolchain's lint-kustomize: kubescape fatals
-# on directories that contain ONLY custom resources it can't map (stack/ is
-# all Flux Kustomizations; kyverno-policies and cert-manager-issuers are
-# ClusterPolicy/ClusterIssuer only). Config coverage of the actual workloads
-# lives in flux-containers (kubescape over each chart's rendered manifests);
-# here we scan the component dirs that carry core-typed resources.
+# on directories that contain ONLY custom resources it can't map (the tree
+# roots are all Flux Kustomizations; kyverno-policies and
+# cert-manager-issuers are ClusterPolicy/ClusterIssuer only). Config
+# coverage of the actual workloads lives in flux-containers (kubescape over
+# each chart's rendered manifests); here we scan every component dir except
+# the named CR-only set.
 [lint-kustomize]
 hide = true
 run = """
 set -eu
 export KUBECONFIG=/nonexistent
-for d in components/kyverno components/cert-manager components/external-dns components/dex components/otel-collector components/gateway components/flux-web components/patchy; do
+for d in common/components/*/ aws/components/*/ google/components/*/; do
+  case "$(basename "$d")" in
+    # dex is CR-only too: its namespace rides the dex-cloud companions
+    cert-manager-issuers|dex|flux|gateway-crds|kyverno-policies|optional|rbac|secret-sync|dex-cloud|flux-web-cloud|patchy-cloud) continue ;;
+  esac
   echo "lint-kustomize: kubescape scan $d"
   if [ -f .kubescape/exceptions.json ]; then
     kubescape scan "$d" --logger warning --severity-threshold "${KUBESCAPE_SEVERITY:-high}" --exceptions .kubescape/exceptions.json

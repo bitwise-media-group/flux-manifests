@@ -1,0 +1,132 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+
+# The upstream secrets-store-sync-controller (kubernetes-sigs): the piece
+# of the secret-sync machinery EKS does not ship. The
+# aws-secrets-store-csi-driver-provider EKS add-on (terraform) bundles the
+# Secrets Store CSI driver and the AWS provider; this controller supplies
+# the SecretSync CRD (secret-sync.x-k8s.io/v1alpha1) and materialises each
+# SecretSync's Secret WITHOUT a pod mounting a CSI volume -- the standalone
+# sync GKE's Integrated Secret Synchronization provides natively, which is
+# why this component exists only in the aws tree (emitted by
+# aws/components/optional/resourceset.yaml) and why the consuming
+# companion Kustomizations (dex-cloud, flux-web-cloud, patchy-cloud)
+# depend on it.
+#
+# The controller impersonates each SecretSync's serviceAccountName: it
+# requests that KSA's token with the pods.eks.amazonaws.com audience and
+# hands it to the AWS provider, which exchanges it with the Pod Identity
+# Agent -- so the reader identity is the CONSUMER's Pod Identity
+# association (the *-secrets KSAs the cluster module associates with
+# Secrets Manager reader roles), never this controller's own.
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSet
+metadata:
+  name: secret-sync
+  namespace: secret-sync
+spec:
+  inputsFrom:
+    - kind: ResourceSetInputProvider
+      name: secret-sync
+  # The OCIRepository rides resourcesTemplate rather than resources below
+  # (flux-operator renders both and merges them) because the verify block's
+  # SHAPE follows the signing mode: keyed clusters (SIGNED_IDENTITY_KMS_KEY
+  # set) verify against the cosign-pub public-key Secret rendered here from
+  # the COSIGN_PUBLIC_KEY cluster var, keyless clusters against the Fulcio
+  # identities. Conditional membership of a map needs a text template.
+  resourcesTemplate: |
+    << $keyed := ne "${SIGNED_IDENTITY_KMS_KEY:=}" "" >>
+    << if ne "${COSIGN_PUBLIC_KEY:=}" "" >>
+    ---
+    # The signing key's public half (published base64-encoded by terraform,
+    # so it drops straight into data); source-controller verifies the chart
+    # artifact against it in keyed mode.
+    apiVersion: v1
+    kind: Secret
+    metadata:
+      name: cosign-pub
+      namespace: secret-sync
+    type: Opaque
+    data:
+      cosign.pub: ${COSIGN_PUBLIC_KEY:=}
+    << end >>
+    ---
+    apiVersion: source.toolkit.fluxcd.io/v1
+    kind: OCIRepository
+    metadata:
+      name: secret-sync
+      namespace: secret-sync
+    spec:
+      interval: 1h
+      url: oci://${PLATFORM_REGISTRY}/charts/secrets-store-sync-controller
+      provider: "${OCI_PROVIDER}"
+      ref:
+        tag: << inputs.tag >>
+      verify:
+        provider: cosign
+        << if $keyed >>
+        # Keyed: verified against the KMS signing key's public half.
+        secretRef:
+          name: cosign-pub
+        << else >>
+        # Keyless: the chart must carry a Fulcio certificate from the
+        # flux-containers publish workflow. Single-quoted: the values are
+        # regexes whose backslashes a double-quoted scalar would mangle.
+        matchOIDCIdentity:
+          - issuer: '${SIGNED_IDENTITY_ISSUER}'
+            subject: '${SIGNED_IDENTITY_CHARTS}'
+        << end >>
+  resources:
+    - apiVersion: helm.toolkit.fluxcd.io/v2
+      kind: HelmRelease
+      metadata:
+        name: secret-sync
+        namespace: secret-sync
+      spec:
+        interval: 30m
+        timeout: 5m
+        chartRef:
+          kind: OCIRepository
+          name: secret-sync
+          namespace: secret-sync
+        # The SecretSync CRD ships in the chart's crds/ directory; keep it
+        # tracking the chart on upgrade rather than helm's default skip.
+        install:
+          crds: CreateReplace
+        upgrade:
+          crds: CreateReplace
+        values:
+          image:
+            repository: ${CONTAINER_REGISTRY}/images/registry.k8s.io/secrets-store-sync/controller
+          # The audience the controller mints SecretSync KSA tokens with.
+          # pods.eks.amazonaws.com is the Pod Identity token audience --
+          # matching usePodIdentity: "true" in every SecretProviderClass
+          # this stack authors, so the AWS provider can exchange the token
+          # with the Pod Identity Agent for the KSA's association role.
+          tokenRequestAudience:
+            - audience: pods.eks.amazonaws.com
+          # a small always-on singleton -> the system pool
+          nodeSelector:
+            role: system
+        # The chart hardcodes its provider-socket hostPath to
+        # /var/run/secrets-store-sync-providers, a directory of its own that
+        # the AWS provider's DaemonSet never writes to; the provider
+        # registers its socket in the Secrets Store CSI driver's providers
+        # dir instead. No values knob exists, so point the volume at the
+        # driver's dir -- the provider serves plain gRPC on that socket and
+        # is happy with two clients. The test op pins the volume identity
+        # so a chart reorder fails loudly instead of patching the wrong
+        # volume.
+        postRenderers:
+          - kustomize:
+              patches:
+                - target:
+                    kind: Deployment
+                    name: secrets-store-sync-controller-manager
+                  patch: |
+                    - op: test
+                      path: /spec/template/spec/volumes/0/name
+                      value: providervol
+                    - op: replace
+                      path: /spec/template/spec/volumes/0/hostPath/path
+                      value: /var/run/secrets-store-csi-providers

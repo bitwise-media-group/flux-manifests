@@ -1,0 +1,7 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+
+# The template reads no inputs (the signing mode and cloud-specific KMS
+# scheme are baked in at substitution time); the CLI still wants one input
+# set to render with.
+- id: "1"

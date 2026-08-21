@@ -1,0 +1,179 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+
+# Component election: the optional tier (dex, flux-web, patchy) deploys
+# only when named in the STACK_COMPONENTS cluster var — short names,
+# comma-separated. Unset elects everything, so existing clusters are
+# unaffected. kustomize can't conditionally include resources, so the
+# per-component Flux Kustomizations are emitted from this template; the
+# core tier (kyverno, cert-manager, external-dns, gateway, rbac) rides the
+# tree root unconditionally.
+#
+# The same var reaches inside components for cross-component wiring: dex
+# only syncs / registers OAuth2 clients for elected relying parties, and
+# patchy's status page drops to rollups-only (no SSO) on dex-less clusters.
+#
+# Each elected component is a PAIR: the cloud-neutral core under
+# ./common/components/<name>, and this tree's <name>-cloud companion
+# carrying the GKE secret-sync dialect (Integrated Secret Synchronization)
+# and the GKE Gateway HealthCheckPolicies. The core depends on its
+# companion so the namespace and credentials exist before the release
+# reconciles — mirroring the ordering when secrets and core rode one
+# Kustomization. No secret-sync machinery to deploy here: GKE ships it
+# with the cluster.
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSet
+metadata:
+  name: optional
+  namespace: flux-system
+spec:
+  inputs:
+    - components: "${STACK_COMPONENTS:=dex,flux-web,patchy}"
+  resourcesTemplate: |
+    << $elected := splitList "," inputs.components >>
+    << if has "dex" $elected >>
+    ---
+    apiVersion: kustomize.toolkit.fluxcd.io/v1
+    kind: Kustomization
+    metadata:
+      name: dex-cloud
+      namespace: flux-system
+    spec:
+      interval: 30m
+      retryInterval: 2m
+      timeout: 5m
+      wait: true
+      prune: true
+      sourceRef:
+        kind: OCIRepository
+        name: flux-system
+      path: ./google/components/dex-cloud
+      postBuild:
+        substituteFrom:
+          - kind: ConfigMap
+            name: cluster-vars
+    ---
+    apiVersion: kustomize.toolkit.fluxcd.io/v1
+    kind: Kustomization
+    metadata:
+      name: dex
+      namespace: flux-system
+    spec:
+      interval: 30m
+      retryInterval: 2m
+      timeout: 5m
+      wait: true
+      prune: true
+      dependsOn:
+        - name: kyverno-policies
+        - name: gateway
+        - name: dex-cloud
+      sourceRef:
+        kind: OCIRepository
+        name: flux-system
+      path: ./common/components/dex
+      postBuild:
+        substituteFrom:
+          - kind: ConfigMap
+            name: cluster-vars
+    << end >>
+    << if and (has "flux-web" $elected) (has "dex" $elected) >>
+    ---
+    # flux-web is the flux UI's SSO wiring and edge; without dex there is
+    # nothing to configure, hence the and-guard on the pair.
+    apiVersion: kustomize.toolkit.fluxcd.io/v1
+    kind: Kustomization
+    metadata:
+      name: flux-web-cloud
+      namespace: flux-system
+    spec:
+      interval: 30m
+      retryInterval: 2m
+      timeout: 5m
+      wait: true
+      prune: true
+      sourceRef:
+        kind: OCIRepository
+        name: flux-system
+      path: ./google/components/flux-web-cloud
+      postBuild:
+        substituteFrom:
+          - kind: ConfigMap
+            name: cluster-vars
+    ---
+    apiVersion: kustomize.toolkit.fluxcd.io/v1
+    kind: Kustomization
+    metadata:
+      name: flux-web
+      namespace: flux-system
+    spec:
+      interval: 30m
+      retryInterval: 2m
+      timeout: 5m
+      wait: true
+      prune: true
+      dependsOn:
+        - name: gateway
+        - name: flux-web-cloud
+      sourceRef:
+        kind: OCIRepository
+        name: flux-system
+      path: ./common/components/flux-web
+      postBuild:
+        substituteFrom:
+          - kind: ConfigMap
+            name: cluster-vars
+    << end >>
+    << if has "patchy" $elected >>
+    ---
+    apiVersion: kustomize.toolkit.fluxcd.io/v1
+    kind: Kustomization
+    metadata:
+      name: patchy-cloud
+      namespace: flux-system
+    spec:
+      interval: 30m
+      retryInterval: 2m
+      timeout: 5m
+      wait: true
+      prune: true
+      sourceRef:
+        kind: OCIRepository
+        name: flux-system
+      path: ./google/components/patchy-cloud
+      postBuild:
+        substituteFrom:
+          - kind: ConfigMap
+            name: cluster-vars
+    ---
+    apiVersion: kustomize.toolkit.fluxcd.io/v1
+    kind: Kustomization
+    metadata:
+      name: patchy
+      namespace: flux-system
+    spec:
+      interval: 30m
+      retryInterval: 2m
+      # 10m rather than the workload default 5m: the first install also
+      # waits on the SecretSyncs materialising the chart's Secrets; the
+      # retry loop absorbs any remaining race.
+      timeout: 10m
+      wait: true
+      prune: true
+      # kyverno-policies: image verification (including the patchy
+      # attestor) must be live before pods admit. gateway: the webhook
+      # HTTPRoute attaches to the platform Gateway's https listener.
+      # patchy-cloud: the chart's credential Secrets sync there.
+      dependsOn:
+        - name: kyverno-policies
+        - name: gateway
+        - name: patchy-cloud
+      sourceRef:
+        kind: OCIRepository
+        name: flux-system
+      path: ./common/components/patchy
+      postBuild:
+        substituteFrom:
+          - kind: ConfigMap
+            name: cluster-vars
+    << end >>

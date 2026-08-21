@@ -1,0 +1,29 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+
+# Static stand-ins for the tag providers during validation (passed via
+# --inputs-from-provider so the Permute strategy namespaces them exactly
+# as in the cluster). Names must match the real providers.
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSetInputProvider
+metadata:
+  name: dex
+  namespace: dex
+spec:
+  type: Static
+  defaultValues:
+    id: "1"
+    tag: "0.24.1"
+    digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+---
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSetInputProvider
+metadata:
+  name: dex-image
+  namespace: dex
+spec:
+  type: Static
+  defaultValues:
+    id: "2"
+    tag: "v2.45.1"
+    digest: "sha256:1111111111111111111111111111111111111111111111111111111111111111"
