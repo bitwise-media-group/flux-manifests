@@ -31,9 +31,11 @@ metadata:
 spec:
   inputs:
     - cloud: "${CLOUD:=google}"
-      install: "${GATEWAY_API_CRDS:=true}"
   resourcesTemplate: |
-    << if and (eq inputs.cloud "aws") (eq inputs.install "true") >>
+    # GATEWAY_API_CRDS is compared inline, not via inputs: post-build
+    # substitution would re-type a bare true/false input into a bool and
+    # break the string comparison.
+    << if and (eq inputs.cloud "aws") (eq "${GATEWAY_API_CRDS:=true}" "true") >>
     ---
     apiVersion: kustomize.toolkit.fluxcd.io/v1
     kind: Kustomization

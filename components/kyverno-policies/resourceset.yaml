@@ -50,11 +50,11 @@ metadata:
   name: kyverno-policies
   namespace: kyverno
 spec:
-  inputs:
-    - kmsKey: "${SIGNED_IDENTITY_KMS_KEY:=}"
-      cloud: "${CLOUD:=google}"
   resourcesTemplate: |
-    << $keyed := ne inputs.kmsKey "" >>
+    # The KMS key is compared inline, not via spec.inputs: post-build
+    # substitution turns an empty input into null, the key vanishes on
+    # apply, and the template's missingkey=error fails the build.
+    << $keyed := ne "${SIGNED_IDENTITY_KMS_KEY:=}" "" >>
     ---
     apiVersion: kyverno.io/v1
     kind: ClusterPolicy
@@ -104,7 +104,7 @@ spec:
                     # Keyed: the signing key, resolved through the cloud
                     # KMS API in that cloud's cosign URI scheme.
                     - keys:
-                        kms: << if eq inputs.cloud "aws" >>awskms:///<< inputs.kmsKey >><< else >>gcpkms://<< inputs.kmsKey >><< end >>
+                        kms: << if eq "${CLOUD:=google}" "aws" >>awskms:///${SIGNED_IDENTITY_KMS_KEY}<< else >>gcpkms://${SIGNED_IDENTITY_KMS_KEY}<< end >>
                     << else >>
                     - keyless:
                         subjectRegExp: '${SIGNED_IDENTITY_IMAGES}'

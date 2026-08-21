@@ -8,6 +8,12 @@
 # guards each binding: an empty group renders nothing rather than an
 # invalid empty subject.
 #
+# The vars are read inline in the template text, never via spec.inputs:
+# post-build substitution round-trips the manifest through YAML, re-typing
+# input values on the way — an empty var becomes null (the key vanishes on
+# apply, and the template engine's missingkey=error fails the build) and
+# true/false become bools that break string comparison.
+#
 # The same group emails satisfy both authenticators: the GKE control plane
 # (kubectl, via gke-security-groups membership) and the patchy status
 # server's SubjectAccessReviews (groups claim from dex, which resolves
@@ -18,17 +24,8 @@ metadata:
   name: rbac
   namespace: flux-system
 spec:
-  inputs:
-    - viewers: "${RBAC_GROUP_VIEWERS}"
-      developers: "${RBAC_GROUP_DEVELOPERS}"
-      devops: "${RBAC_GROUP_DEVOPS}"
-      admins: "${RBAC_GROUP_ADMINS}"
-      # not a group: gates the evaluation-submitter binding below on the
-      # evaluation controller actually being deployed, so its chart-rendered
-      # ClusterRole exists to bind against
-      evaluation: "${PATCHY_EVALUATION:=false}"
   resourcesTemplate: |
-    << if inputs.admins >>
+    << if ne "${RBAC_GROUP_ADMINS:=}" "" >>
     ---
     # admins: everything, everywhere — flux objects included.
     apiVersion: rbac.authorization.k8s.io/v1
@@ -42,7 +39,7 @@ spec:
     subjects:
       - kind: Group
         apiGroup: rbac.authorization.k8s.io
-        name: << inputs.admins >>
+        name: ${RBAC_GROUP_ADMINS}
     ---
     # admins on the status page: the operator surface plus the demo-tooling
     # verbs (replay, reset). cluster-admin above already passes the server's
@@ -60,9 +57,9 @@ spec:
     subjects:
       - kind: Group
         apiGroup: rbac.authorization.k8s.io
-        name: << inputs.admins >>
+        name: ${RBAC_GROUP_ADMINS}
     << end >>
-    << if inputs.devops >>
+    << if ne "${RBAC_GROUP_DEVOPS:=}" "" >>
     ---
     # devops: cluster-wide write on namespaced objects (the built-in edit
     # role, flux objects included via its aggregation) — RBAC, CRDs and the
@@ -78,9 +75,9 @@ spec:
     subjects:
       - kind: Group
         apiGroup: rbac.authorization.k8s.io
-        name: << inputs.devops >>
+        name: ${RBAC_GROUP_DEVOPS}
     << end >>
-    << if inputs.viewers >>
+    << if ne "${RBAC_GROUP_VIEWERS:=}" "" >>
     ---
     # viewers: cluster-wide read-only. The built-in view role aggregates
     # flux's flux-view rules; CRDs without aggregation labels (patchy's
@@ -97,7 +94,7 @@ spec:
     subjects:
       - kind: Group
         apiGroup: rbac.authorization.k8s.io
-        name: << inputs.viewers >>
+        name: ${RBAC_GROUP_VIEWERS}
     ---
     # viewers on the status page: native get on findings opens the
     # dashboard read gate, nothing grants the action verbs.
@@ -113,9 +110,9 @@ spec:
     subjects:
       - kind: Group
         apiGroup: rbac.authorization.k8s.io
-        name: << inputs.viewers >>
+        name: ${RBAC_GROUP_VIEWERS}
     << end >>
-    << if inputs.developers >>
+    << if ne "${RBAC_GROUP_DEVELOPERS:=}" "" >>
     ---
     # developers: the full status-page surface in the patchy namespace —
     # get/list on findings + findingrollups plus the custom verbs
@@ -134,8 +131,8 @@ spec:
     subjects:
       - kind: Group
         apiGroup: rbac.authorization.k8s.io
-        name: << inputs.developers >>
-    << if eq inputs.evaluation "true" >>
+        name: ${RBAC_GROUP_DEVELOPERS}
+    << if eq "${PATCHY_EVALUATION:=false}" "true" >>
     ---
     # developers on the evaluation API: submit evaluation units and watch
     # their runs. Same tier as the findings-operator grant above; admins
@@ -154,6 +151,6 @@ spec:
     subjects:
       - kind: Group
         apiGroup: rbac.authorization.k8s.io
-        name: << inputs.developers >>
+        name: ${RBAC_GROUP_DEVELOPERS}
     << end >>
     << end >>
