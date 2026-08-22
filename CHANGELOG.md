@@ -1,5 +1,41 @@
 # Changelog
 
+## [3.0.0](https://github.com/bitwise-media-group/flux-manifests/compare/v2.0.0...v3.0.0) (2026-08-22)
+
+
+### ⚠ BREAKING CHANGES
+
+* **aws:** the aws tree now requires the SECRETS_ROLE_PREFIX cluster var -- pair with the terraform-aws-eks-flux release that registers the cluster's IRSA OIDC provider and publishes it.
+* the artifact layout contract changes. There is no ./stack entrypoint any more: clusters must sync path "aws" or "google" (terraform-aws-eks-flux / terraform-google-gke-flux >= their matching feat! releases, or a manual kubectl patch fluxinstance flux -n flux-system --type merge -p '{"spec":{"sync":{"path":"aws"}}}'). The CLOUD cluster var is retired, the aws tree requires the aws module's reserved vars (OCI_PROVIDER, ARTIFACT_TAG_PROVIDER, AWS_*, DNS_ZONE_ID, GATEWAY_*) bare, and otel-collector is gone.
+
+### Features
+
+* branch artifact verification on the KMS signing mode ([526c899](https://github.com/bitwise-media-group/flux-manifests/commit/526c8998e60942aebe09633f35bf54be201e4681))
+* **dex:** render connectors from DEX_CONNECTORS instead of a hardcoded google entry ([9ebfbd7](https://github.com/bitwise-media-group/flux-manifests/commit/9ebfbd73b4e539759f3e48efceb5e2e4ceb9afd6))
+* follow mirror-tracked image tags via per-image input providers ([9da9856](https://github.com/bitwise-media-group/flux-manifests/commit/9da985626af54a9af2b74da061534a2a4d59e2b3))
+* **gateway:** install the Gateway API CRDs on aws ([7ee632d](https://github.com/bitwise-media-group/flux-manifests/commit/7ee632de72dc2fde9d1eeb903fddf025b1d90c6a))
+* **gateway:** serve from an EIP-bound NLB on aws ([cc8045a](https://github.com/bitwise-media-group/flux-manifests/commit/cc8045a55320dd26a05114eaa5073575ea430994))
+* **patchy:** configure the egress broker and model provider via cluster vars ([a0cf97d](https://github.com/bitwise-media-group/flux-manifests/commit/a0cf97d78bda889a2389c7fcd05e5b3bd90198a1))
+* **patchy:** deploy the optional evaluation controller ([b95fa58](https://github.com/bitwise-media-group/flux-manifests/commit/b95fa585850b61a4ca6538788ec79fbab81ed584))
+* **patchy:** ingest Security Command Center findings ([aa7fa71](https://github.com/bitwise-media-group/flux-manifests/commit/aa7fa710dc7e026c30843ff71e0188069a9d59ae))
+* port external-dns, otel-collector and the issuers to aws ([80c4314](https://github.com/bitwise-media-group/flux-manifests/commit/80c43142ffd14b8d53d77abd54d2a2ebf14e7dd9))
+* split the stack into per-cloud trees (aws / google / common) ([b3d165a](https://github.com/bitwise-media-group/flux-manifests/commit/b3d165a27afb80dd4dbadc07fad283878e852662))
+* sync secrets from AWS Secrets Manager when CLOUD=aws ([05f6321](https://github.com/bitwise-media-group/flux-manifests/commit/05f632199573d6f313a6bd6d0e4429b43d9b50c3))
+
+
+### Bug Fixes
+
+* **aws:** sync secrets via IRSA instead of EKS Pod Identity ([62e773a](https://github.com/bitwise-media-group/flux-manifests/commit/62e773a603cdbd65f6bc72b3b828d5fd35087266))
+* default cloud-branch secret-sync vars so strict envsubst passes cross-cloud ([2348f3c](https://github.com/bitwise-media-group/flux-manifests/commit/2348f3c5aa582f2c6026aded492d94fdf8be1a05))
+* **deps:** update bitwise-media-group/github-workflows action to v6.1.1 ([#26](https://github.com/bitwise-media-group/flux-manifests/issues/26)) ([ea1c174](https://github.com/bitwise-media-group/flux-manifests/commit/ea1c174f96111a60aee0dd8cf7c262597b990dab))
+* **deps:** update bitwise-media-group/github-workflows action to v6.2.0 ([#34](https://github.com/bitwise-media-group/flux-manifests/issues/34)) ([48982ee](https://github.com/bitwise-media-group/flux-manifests/commit/48982eee4a79c64df36aa1bce87067d037d819b2))
+* **deps:** update fluxcd/flux2 action to v2.9.4 ([#27](https://github.com/bitwise-media-group/flux-manifests/issues/27)) ([d9e9c5f](https://github.com/bitwise-media-group/flux-manifests/commit/d9e9c5fccbbc9e5c7d014b88eda8ad788cff3e3b))
+* **flux-web:** probe the operator's readiness port, not the SSO UI ([1c6473f](https://github.com/bitwise-media-group/flux-manifests/commit/1c6473f1e9544e25a0ae6b2151583ab2b650ed04))
+* **flux:** gate off helm-controller chart digest tracking ([91b1979](https://github.com/bitwise-media-group/flux-manifests/commit/91b1979ad1364980b14bccab5e7d4c36262b9fe6))
+* read cluster vars inline in ResourceSet templates ([a78c07d](https://github.com/bitwise-media-group/flux-manifests/commit/a78c07d67da0d2cff08588ba2b957cce604ca036))
+* render the optional tier on aws without the google-only cluster vars ([f08778b](https://github.com/bitwise-media-group/flux-manifests/commit/f08778bd5bcb54d8e4783b824a9330996bfcb20f))
+* substitute the RSIP type from ARTIFACT_TAG_PROVIDER ([3f931fe](https://github.com/bitwise-media-group/flux-manifests/commit/3f931fe3e3b73eeed59c7648162ded41bbaf0149))
+
 ## [2.0.0](https://github.com/bitwise-media-group/flux-manifests/compare/v1.0.0...v2.0.0) (2026-07-26)
 
 
