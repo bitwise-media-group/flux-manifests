@@ -1,7 +1,13 @@
 # Copyright 2026 BitWise Media Group Ltd
 # SPDX-License-Identifier: MIT
 
-# Let's Encrypt cluster issuers, DNS-01 against the delegated Route53 zone.
+# Let's Encrypt cluster issuers, DNS-01 against the delegated Route53 zone —
+# pinned to the PUBLIC flavour: Let's Encrypt resolves the challenge TXT over
+# public DNS, so under split-horizon the record must land in the public zone,
+# never the private one shadowing it in-VPC (the controller's self-check
+# resolves publicly too: --dns01-recursive-nameservers-only in the
+# cert-manager component). A private-only zone cannot satisfy DNS-01 at all,
+# so the empty id failing this render loudly is the right outcome there.
 # No credential secretRef: ambient credentials solve the challenge (the
 # controller's Pod Identity association with the Route53 change/read role,
 # created by terraform, and ClusterIssuers may use ambient credentials by
@@ -21,7 +27,7 @@ spec:
       - dns01:
           route53:
             region: ${AWS_REGION}
-            hostedZoneID: ${DNS_ZONE_ID}
+            hostedZoneID: ${DNS_PUBLIC_ZONE_ID}
 ---
 apiVersion: cert-manager.io/v1
 kind: ClusterIssuer
@@ -37,4 +43,4 @@ spec:
       - dns01:
           route53:
             region: ${AWS_REGION}
-            hostedZoneID: ${DNS_ZONE_ID}
+            hostedZoneID: ${DNS_PUBLIC_ZONE_ID}

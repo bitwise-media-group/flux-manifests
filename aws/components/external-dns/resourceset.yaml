@@ -2,7 +2,9 @@
 # SPDX-License-Identifier: MIT
 
 # external-dns publishes records for the platform Gateway's HTTPRoutes (the
-# patchy webhook host) into the delegated Route53 zone. Zone access is
+# patchy webhook host) into the delegated Route53 zone — one deployment per
+# enabled zone flavour, so split-horizon clusters run a second, private-zone
+# instance alongside the primary. Zone access is
 # ambient: the pinned ServiceAccount name carries a Pod Identity
 # association with the Route53 change/read role, created by terraform.
 # Records are owned per cluster (txtOwnerId) and policy=sync prunes records
@@ -75,7 +77,9 @@ spec:
     apiVersion: helm.toolkit.fluxcd.io/v2
     kind: HelmRelease
     metadata:
-      name: external-dns
+      # -public/-private naming pairs each instance with the zone flavour
+      # it owns; the chart names its resources after the release.
+      name: external-dns-public
       namespace: external-dns
     spec:
       interval: 30m
@@ -98,17 +102,20 @@ spec:
         env:
           - name: AWS_DEFAULT_REGION
             value: '${AWS_REGION}'
-        # Only the delegated hosted zone is ever touched. Split-horizon
-        # enables the zone in both flavours under the same name, so each
-        # published flavour id gets an entry and external-dns writes the
-        # same records into both.
-        zoneIdFilters:
-          << if ne "${DNS_PUBLIC_ZONE_ID}" "" >>
-          - '${DNS_PUBLIC_ZONE_ID}'
-          << end >>
-          << if ne "${DNS_PRIVATE_ZONE_ID}" "" >>
-          - '${DNS_PRIVATE_ZONE_ID}'
-          << end >>
+        # Only the delegated hosted zone is ever touched — and only the
+        # PUBLIC flavour, which always exists (cert-manager's DNS-01 needs
+        # it even on a fully internal cluster). The chart has no
+        # zoneIdFilters value (that name is Bitnami's; this chart silently
+        # drops unknown values), so the filters ride extraArgs. One
+        # instance per zone flavour because a single instance cannot serve
+        # split-horizon: the AWS provider flattens every matched zone into
+        # one record view before planning, so a record present in either
+        # flavour reads as present in both and the missing copy is never
+        # created. The zone-type filter backs the id filter so the two
+        # instances can never cross streams.
+        extraArgs:
+          - --zone-id-filter=${DNS_PUBLIC_ZONE_ID}
+          - --aws-zone-type=public
         # Only the delegated zone's domain is ever touched.
         domainFilters:
           - ${DNS_DOMAIN}
@@ -116,9 +123,10 @@ spec:
         sources:
           - service
           - gateway-httproute
-        # Per-cluster record ownership; sync (not upsert-only) prunes records
-        # when routes go away, so recreation converges cleanly.
-        txtOwnerId: ${CLUSTER_NAME}
+        # Per-cluster, per-flavour record ownership; sync (not upsert-only)
+        # prunes records when routes go away, so recreation converges
+        # cleanly.
+        txtOwnerId: ${CLUSTER_NAME}-public
         policy: sync
         # The terraform identity grant binds external-dns/external-dns —
         # pin the name so the contract holds.
@@ -126,3 +134,54 @@ spec:
           name: external-dns
         nodeSelector:
           role: system
+    << if ne "${DNS_PRIVATE_ZONE_ID}" "" >>
+    ---
+    # Split-horizon second instance: the same records into the private
+    # flavour. A separate release rather than a wider filter on the first —
+    # the flattened-view planning above means each instance must see
+    # exactly one zone for its plan to be computed against that zone alone.
+    apiVersion: helm.toolkit.fluxcd.io/v2
+    kind: HelmRelease
+    metadata:
+      name: external-dns-private
+      namespace: external-dns
+    spec:
+      interval: 30m
+      timeout: 5m
+      chartRef:
+        kind: OCIRepository
+        name: external-dns
+        namespace: external-dns
+      values:
+        image:
+          repository: ${CONTAINER_REGISTRY}/images/registry.k8s.io/external-dns/external-dns
+          tag: << inputs.external_dns_image.tag >>
+        provider:
+          name: aws
+        env:
+          - name: AWS_DEFAULT_REGION
+            value: '${AWS_REGION}'
+        # Pinned to the private flavour, id and zone type both — the
+        # mirror of the primary release's public pin.
+        extraArgs:
+          - --zone-id-filter=${DNS_PRIVATE_ZONE_ID}
+          - --aws-zone-type=private
+        domainFilters:
+          - ${DNS_DOMAIN}
+        sources:
+          - service
+          - gateway-httproute
+        # Ownership TXT records live per zone, so the suffix is legibility
+        # rather than necessity: registry entries name the instance that
+        # wrote them.
+        txtOwnerId: ${CLUSTER_NAME}-private
+        policy: sync
+        # Reuses the public release's ServiceAccount: the terraform Pod
+        # Identity association binds external-dns/external-dns once and
+        # covers both deployments.
+        serviceAccount:
+          create: false
+          name: external-dns
+        nodeSelector:
+          role: system
+    << end >>
