@@ -98,9 +98,17 @@ spec:
         env:
           - name: AWS_DEFAULT_REGION
             value: '${AWS_REGION}'
-        # Only the delegated hosted zone is ever touched.
+        # Only the delegated hosted zone is ever touched. Split-horizon
+        # enables the zone in both flavours under the same name, so each
+        # published flavour id gets an entry and external-dns writes the
+        # same records into both.
         zoneIdFilters:
-          - '${DNS_ZONE_ID}'
+          << if ne "${DNS_PUBLIC_ZONE_ID}" "" >>
+          - '${DNS_PUBLIC_ZONE_ID}'
+          << end >>
+          << if ne "${DNS_PRIVATE_ZONE_ID}" "" >>
+          - '${DNS_PRIVATE_ZONE_ID}'
+          << end >>
         # Only the delegated zone's domain is ever touched.
         domainFilters:
           - ${DNS_DOMAIN}
