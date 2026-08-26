@@ -137,21 +137,29 @@ spec:
               version: "2.x"
               registry: ${CONTAINER_REGISTRY}/images/ghcr.io/fluxcd
             cluster:
-              # This tree is the google fork of the manifests; FluxInstance
-              # wants its own vocabulary (aws/gcp).
-              type: gcp
+              # FluxInstance wants a cloud vocabulary of its own (aws/gcp)
+              # -- exactly OCI_PROVIDER's value set, so the registry-auth
+              # var doubles as the cluster type rather than minting a twin.
+              type: "${OCI_PROVIDER:=gcp}"
               networkPolicy: true
             sync:
               kind: OCIRepository
-              provider: "${OCI_PROVIDER:=gcp}" # Artifact Registry auth via Workload Identity
+              # registry auth via ambient identity: ECR/Pod Identity on
+              # aws, Artifact Registry/Workload Identity on google
+              provider: "${OCI_PROVIDER:=gcp}"
               url: oci://${PLATFORM_REGISTRY}/flux-manifests
               # The release channel: dev clusters track edge, production
               # tracks stable (paired with the matching signing subject).
               ref: "${FLUX_SYNC_CHANNEL:=stable}"
-              # The fixed point that keeps a running cluster on this tree:
-              # the artifact ships every tree, and this literal re-asserts
-              # the google entrypoint on each reconcile.
-              path: google
+              # The fixed point that keeps a running cluster on its tree:
+              # the artifact ships every tree, and each tree's flux.yaml
+              # entry re-asserts its own entrypoint through an inline
+              # postBuild.substitute (which beats any substituteFrom key),
+              # so the literal still lives in the tree it names. Bare on
+              # purpose: were the var ever to go missing, strict
+              # substitution fails the Kustomization loudly instead of a
+              # default silently pointing the cluster at the wrong tree.
+              path: "${FLUX_SYNC_PATH}"
               interval: 5m
             kustomize:
               patches:

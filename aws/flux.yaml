@@ -19,8 +19,13 @@ spec:
   sourceRef:
     kind: OCIRepository
     name: flux-system
-  path: ./aws/components/flux
+  path: ./common/components/flux
   postBuild:
+    # The tree literal that keeps this cluster on the aws entrypoint
+    # (FluxInstance sync.path) lives here, in the tree it names; inline
+    # substitute beats any substituteFrom key of the same name.
+    substitute:
+      FLUX_SYNC_PATH: aws
     substituteFrom:
       - kind: ConfigMap
         name: cluster-vars

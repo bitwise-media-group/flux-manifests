@@ -4,7 +4,7 @@
 # Cilium: hands off from terraform's bootstrap-only helm_release
 # (terraform-aws-eks-flux's cilium.tf, lifecycle.ignore_changes = all) to
 # Flux -- the same name-matched adoption trick as flux/flux-operator (see
-# aws/components/flux/resourceset.yaml): the HelmRelease below is "cilium"
+# common/components/flux/resourceset.yaml): the HelmRelease below is "cilium"
 # in kube-system, so helm-controller takes over the existing release
 # storage instead of installing a second one. Chart version then follows
 # the newest mirrored tag like every other component, not terraform's
