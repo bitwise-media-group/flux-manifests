@@ -1,0 +1,113 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+
+# The AWS Load Balancer Controller turns the platform Gateway's
+# LoadBalancer Service (cilium-gateway-platform) into the internet-facing
+# NLB on the terraform-reserved EIPs. Cilium materialises that Service and
+# forwards the Gateway's infrastructure annotations, but ships no AWS
+# provisioning code — and aws-load-balancer-type=external opts the Service
+# out of the legacy in-tree provider, so without this controller the
+# Gateway never gets an address (and external-dns has nothing to publish).
+# ELB/EC2 access is ambient: the pinned ServiceAccount name carries a Pod
+# Identity association with the controller policy, created by terraform.
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSet
+metadata:
+  name: aws-load-balancer-controller
+  namespace: aws-load-balancer-controller
+spec:
+  inputsFrom:
+    - kind: ResourceSetInputProvider
+      name: aws-load-balancer-controller
+  # Everything rides resourcesTemplate: the verify block's SHAPE follows the
+  # signing mode (keyed clusters verify against the cosign-pub Secret
+  # rendered here from COSIGN_PUBLIC_KEY, keyless against the Fulcio
+  # identities). Conditional membership of a map needs a text template.
+  resourcesTemplate: |
+    << $keyed := ne "${SIGNED_IDENTITY_KMS_KEY:=}" "" >>
+    << if ne "${COSIGN_PUBLIC_KEY:=}" "" >>
+    ---
+    # The signing key's public half (published base64-encoded by terraform,
+    # so it drops straight into data); source-controller verifies the chart
+    # artifact against it in keyed mode.
+    apiVersion: v1
+    kind: Secret
+    metadata:
+      name: cosign-pub
+      namespace: aws-load-balancer-controller
+    type: Opaque
+    data:
+      cosign.pub: ${COSIGN_PUBLIC_KEY:=}
+    << end >>
+    ---
+    apiVersion: source.toolkit.fluxcd.io/v1
+    kind: OCIRepository
+    metadata:
+      name: aws-load-balancer-controller
+      namespace: aws-load-balancer-controller
+    spec:
+      interval: 1h
+      url: oci://${PLATFORM_REGISTRY}/charts/aws-load-balancer-controller
+      provider: "${OCI_PROVIDER}"
+      ref:
+        tag: << inputs.tag >>
+      verify:
+        provider: cosign
+        << if $keyed >>
+        # Keyed: verified against the KMS signing key's public half.
+        secretRef:
+          name: cosign-pub
+        << else >>
+        # Keyless: the chart must carry a Fulcio certificate from the
+        # flux-containers publish workflow. Single-quoted: the values are
+        # regexes whose backslashes a double-quoted scalar would mangle.
+        matchOIDCIdentity:
+          - issuer: '${SIGNED_IDENTITY_ISSUER}'
+            subject: '${SIGNED_IDENTITY_CHARTS}'
+        << end >>
+    ---
+    apiVersion: helm.toolkit.fluxcd.io/v2
+    kind: HelmRelease
+    metadata:
+      name: aws-load-balancer-controller
+      namespace: aws-load-balancer-controller
+    spec:
+      interval: 30m
+      timeout: 5m
+      chartRef:
+        kind: OCIRepository
+        name: aws-load-balancer-controller
+        namespace: aws-load-balancer-controller
+      values:
+        # Chart and controller release in lockstep (the chart version IS
+        # the controller version, and the chart pins the matching image
+        # tag), so unlike external-dns there is no separate image train:
+        # only the repository is remapped to the mirror and the chart's
+        # default tag names the mirrored image.
+        image:
+          repository: ${CONTAINER_REGISTRY}/images/public.ecr.aws/eks/aws-load-balancer-controller
+        clusterName: ${CLUSTER_NAME}
+        # Pod Identity hands out credentials but not a region, and the
+        # controller's IMDS fallback is unreliable under the hardened node
+        # metadata settings — pin both region and VPC explicitly.
+        region: '${AWS_REGION}'
+        vpcId: '${VPC_ID}'
+        # The terraform identity grant binds
+        # aws-load-balancer-controller/aws-load-balancer-controller —
+        # pin the name so the contract holds.
+        serviceAccount:
+          name: aws-load-balancer-controller
+        # Services opt in explicitly (the Gateway's infrastructure
+        # annotations carry aws-load-balancer-type=external); the mutator
+        # webhook would instead stamp loadBalancerClass onto every future
+        # LoadBalancer Service ambiently.
+        enableServiceMutatorWebhook: false
+        # Gateway API only — no Ingress in the stack, so no alb
+        # IngressClass.
+        createIngressClassResource: false
+        # enableCertManager stays off (helm-generated webhook cert): the
+        # cert is cluster-internal, regenerates on every chart upgrade,
+        # and cert-manager would otherwise become a hard dependency of
+        # the bootstrap-critical ingress path.
+        nodeSelector:
+          role: system

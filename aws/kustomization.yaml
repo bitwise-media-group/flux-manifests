@@ -18,6 +18,7 @@ resources:
   - kyverno-policies.yaml
   - cert-manager.yaml
   - cert-manager-issuers.yaml
+  - aws-load-balancer-controller.yaml
   - external-dns.yaml
   - gateway.yaml
   - rbac.yaml

@@ -1,0 +1,17 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSetInputProvider
+metadata:
+  name: aws-load-balancer-controller
+  namespace: aws-load-balancer-controller
+  annotations:
+    fluxcd.controlplane.io/reconcileEvery: 30m
+spec:
+  type: "${ARTIFACT_TAG_PROVIDER}"
+  url: oci://${PLATFORM_REGISTRY}/charts/aws-load-balancer-controller
+  filter:
+    # Constraint order matters: kustomize drops the quotes, so the default
+    # must not start with '>' or YAML reads it as a folded block scalar.
+    semver: "${AWS_LOAD_BALANCER_CONTROLLER_SEMVER:=<4.0.0 >=3.5.0}"
+    limit: 1
