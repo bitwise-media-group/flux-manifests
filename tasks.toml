@@ -24,7 +24,7 @@ export KUBECONFIG=/nonexistent
 for d in common/components/*/ aws/components/*/ google/components/*/; do
   case "$(basename "$d")" in
     # dex is CR-only too: its namespace rides the dex-cloud companions
-    cert-manager-issuers|dex|flux|gateway-crds|kyverno-policies|optional|rbac|secret-sync|dex-cloud|flux-web-cloud|patchy-cloud) continue ;;
+    cert-manager-issuers|cilium|dex|flux|gateway-crds|kyverno-policies|optional|rbac|secret-sync|dex-cloud|flux-web-cloud|patchy-cloud) continue ;;
   esac
   echo "lint-kustomize: kubescape scan $d"
   if [ -f .kubescape/exceptions.json ]; then

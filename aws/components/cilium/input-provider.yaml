@@ -1,0 +1,24 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSetInputProvider
+metadata:
+  name: cilium
+  namespace: kube-system
+  annotations:
+    fluxcd.controlplane.io/reconcileEvery: 30m
+spec:
+  type: "${ARTIFACT_TAG_PROVIDER}"
+  url: oci://${PLATFORM_REGISTRY}/charts/cilium
+  filter:
+    # Floor matches the mirror's own versionConstraint
+    # (patchy-containers' charts/cilium/manifest.yaml, >=1.20.1 <2.0.0) --
+    # raising it here can never pick a tag the mirror doesn't carry.
+    # Before pointing an EXISTING cluster's terraform-bootstrapped release
+    # at this component, confirm its live Cilium version falls inside this
+    # range (helm get metadata cilium -n kube-system), or raise the floor
+    # via CILIUM_SEMVER first: this ResourceSet's HelmRelease adopts that
+    # release by name, and its first-ever reconcile jumps straight to the
+    # newest in-range mirrored tag.
+    semver: "${CILIUM_SEMVER:=<2.0.0 >=1.20.1}"
+    limit: 1

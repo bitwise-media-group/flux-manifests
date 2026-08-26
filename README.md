@@ -66,6 +66,7 @@ kyverno ──► kyverno-policies ──┬──► cert-manager ──► cer
 | gateway              | per-tree | the shared platform Gateway on terraform-reserved addresses + the platform hostnames' certificate — a GKE global external ALB (`NamedAddress`) on google, a Cilium Gateway whose Service the AWS Load Balancer Controller binds to the reserved EIPs as an NLB on aws (where the tree also installs the Gateway API standard-channel CRDs, `GATEWAY_API_CRDS`) |
 | rbac                 | common   | group → RBAC bindings from `RBAC_GROUP_*`                                                                                                                                                                                                                                                                                                                      |
 | flux                 | per-tree | flux managing flux: the operator + FluxInstance HelmReleases adopt terraform's bootstrap releases and follow the newest mirrored charts; carries the tree's fixed `cluster.type` and `sync.path` literals — the fixed point that keeps a running cluster on its own tree                                                                                       |
+| cilium               | aws only | cilium managing cilium: same name-matched adoption of terraform's bootstrap-only `helm_release.cilium` (`lifecycle.ignore_changes = all`); its wrapping Kustomization depends on `gateway-api-crds` so the handoff's first reconcile lands after the Gateway API CRDs establish — see the Gateway API CRDs caveat below                                        |
 | optional             | per-tree | elects and emits the optional tier (cores + companions; plus `secret-sync` on aws)                                                                                                                                                                                                                                                                             |
 
 Every chart component is a tag-listing ResourceSetInputProvider (newest in-range chart version in the platform registry;
@@ -184,22 +185,24 @@ and only `common/` references them, always behind `:=` defaults):
 
 ### aws only (`terraform-aws-eks-flux`)
 
-| key                                                                      | example                            | consumed by                                                                                                                          |
-| ------------------------------------------------------------------------ | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| `AWS_ACCOUNT_ID`                                                         | `123456789012`                     | (published for component use)                                                                                                        |
-| `AWS_REGION`                                                             | `eu-west-2`                        | every aws SecretProviderClass (Secrets Manager region), external-dns SDK region, issuers                                             |
-| `AWS_PARTITION`                                                          | `aws`                              | (published for component use)                                                                                                        |
-| `SECRETS_ROLE_PREFIX`                                                    | `arn:aws:iam::…:role/x-secrets-`   | every sync KSA's `eks.amazonaws.com/role-arn` annotation (`${SECRETS_ROLE_PREFIX}<ns>-<sa>` — the IRSA reader roles)                 |
-| `OCI_PROVIDER`                                                           | `aws`                              | OCIRepository registry auth (ECR via Pod Identity); the google tree relies on the manifests' `gcp` default instead                   |
-| `ARTIFACT_TAG_PROVIDER`                                                  | `ECRArtifactTag`                   | every platform-registry RSIP in the aws tree; the google tree relies on the `GARArtifactTag` default                                 |
-| `DNS_ZONE_ID`                                                            | `Z0123456789ABCDEFGHIJ`            | external-dns zone filter, issuers (route53 `hostedZoneID`)                                                                           |
-| `GATEWAY_EIP_ALLOCATIONS`                                                | `eipalloc-…,eipalloc-…`            | gateway — NLB Elastic IP allocation ids (Service annotation)                                                                         |
-| `GATEWAY_SUBNETS`                                                        | `subnet-…,subnet-…`                | gateway — the public subnets the NLB spans (Service annotation)                                                                      |
-| `GATEWAY_NLB_TARGET_TYPE`                                                | `instance`                         | gateway — NLB target type; instance is all the LB controller supports off the VPC CNI                                                |
-| `GATEWAY_API_CRDS`                                                       | `true`                             | gateway — installs the vendored Gateway API standard channel; flip `false` when EKS ships the CRDs natively (orphaned, never pruned) |
-| `VPC_ID`, `NODE_SECURITY_GROUP_ID`, `CLUSTER_DISCOVERY_*`, `KARPENTER_*` | —                                  | reserved forward contract for future aws-only components (karpenter et al.)                                                          |
-| `CLAUDE_BEDROCK_REGION`                                                  | `us-east-1` (empty unless bedrock) | patchy — broker Bedrock region                                                                                                       |
-| `CLAUDE_BEDROCK_REGION_PREFIX`                                           | `us`/`eu`/`apac` (empty for none)  | patchy — Bedrock cross-region inference-profile geo prefix                                                                           |
+| key                                                                      | example                                   | consumed by                                                                                                                          |
+| ------------------------------------------------------------------------ | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `AWS_ACCOUNT_ID`                                                         | `123456789012`                            | (published for component use)                                                                                                        |
+| `AWS_REGION`                                                             | `eu-west-2`                               | every aws SecretProviderClass (Secrets Manager region), external-dns SDK region, issuers                                             |
+| `AWS_PARTITION`                                                          | `aws`                                     | (published for component use)                                                                                                        |
+| `SECRETS_ROLE_PREFIX`                                                    | `arn:aws:iam::…:role/x-secrets-`          | every sync KSA's `eks.amazonaws.com/role-arn` annotation (`${SECRETS_ROLE_PREFIX}<ns>-<sa>` — the IRSA reader roles)                 |
+| `OCI_PROVIDER`                                                           | `aws`                                     | OCIRepository registry auth (ECR via Pod Identity); the google tree relies on the manifests' `gcp` default instead                   |
+| `ARTIFACT_TAG_PROVIDER`                                                  | `ECRArtifactTag`                          | every platform-registry RSIP in the aws tree; the google tree relies on the `GARArtifactTag` default                                 |
+| `DNS_ZONE_ID`                                                            | `Z0123456789ABCDEFGHIJ`                   | external-dns zone filter, issuers (route53 `hostedZoneID`)                                                                           |
+| `GATEWAY_EIP_ALLOCATIONS`                                                | `eipalloc-…,eipalloc-…`                   | gateway — NLB Elastic IP allocation ids (Service annotation)                                                                         |
+| `GATEWAY_SUBNETS`                                                        | `subnet-…,subnet-…`                       | gateway — the public subnets the NLB spans (Service annotation)                                                                      |
+| `GATEWAY_NLB_TARGET_TYPE`                                                | `instance`                                | gateway — NLB target type; instance is all the LB controller supports off the VPC CNI                                                |
+| `GATEWAY_API_CRDS`                                                       | `true`                                    | gateway — installs the vendored Gateway API standard channel; flip `false` when EKS ships the CRDs natively (orphaned, never pruned) |
+| `CILIUM_K8S_SERVICE_HOST`                                                | `ABCDEF….gr7.eu-west-2.eks.amazonaws.com` | cilium — the EKS API server endpoint hostname (terraform's `cluster_endpoint_host` local), `k8sServiceHost` value                    |
+| `CILIUM_POD_SUBNET_IDS`                                                  | `["subnet-…","subnet-…"]`                 | cilium — JSON array, terraform's `pod_subnet_ids` local, `eni.subnetIDsFilter` value                                                 |
+| `VPC_ID`, `NODE_SECURITY_GROUP_ID`, `CLUSTER_DISCOVERY_*`, `KARPENTER_*` | —                                         | reserved forward contract for future aws-only components (karpenter et al.)                                                          |
+| `CLAUDE_BEDROCK_REGION`                                                  | `us-east-1` (empty unless bedrock)        | patchy — broker Bedrock region                                                                                                       |
+| `CLAUDE_BEDROCK_REGION_PREFIX`                                           | `us`/`eu`/`apac` (empty for none)         | patchy — Bedrock cross-region inference-profile geo prefix                                                                           |
 
 `SCC_PUSH_SA` alone gates the `google-cloud` Integration — a cluster whose terraform built the pipeline has all of the
 `SCC_*` extras, one that did not has none — because `audience` and `serviceAccount` are required with `minLength: 1` in
@@ -282,7 +285,13 @@ from upstream CRDs — see scripts/validate.sh).
 - **Gateway API CRDs on aws land after Cilium starts**: EKS ships no `gateway.networking.k8s.io` CRDs, so the aws tree
   installs the vendored standard channel (`aws/components/gateway-crds`, emitted while `GATEWAY_API_CRDS` holds). Cilium
   only enables its Gateway API controller when the CRDs are present at agent/operator startup, and on a fresh bootstrap
-  terraform's cilium release comes up first — the first Cilium rollout (upgrade or restart) after the CRDs establish is
-  what activates the implementation. When AWS eventually ships the CRDs as managed cluster furniture, flip the cluster
-  module's `gateway.install_crds` off: the `gateway-api-crds` Kustomization is pruned but the CRDs are orphaned
-  (`prune: false`) — deleting them would cascade into every Gateway and HTTPRoute.
+  terraform's cilium release comes up first. The `cilium` component (`aws/components/cilium`) closes this: its wrapping
+  Kustomization (`aws/cilium.yaml`) depends on `gateway-api-crds`, so the first-ever Flux reconcile of the adopted
+  `cilium` HelmRelease — the terraform → Flux handoff every cluster goes through once — lands only after the CRDs
+  establish. `operator.podAnnotations`/`podAnnotations` also carry a version pin matching the vendored CRDs' `v=`
+  (`aws/components/gateway-crds/kustomization.yaml`), bumped in lockstep with them, so a future CRD version bump forces
+  a rollout too instead of requiring a manual restart. When AWS eventually ships the CRDs as managed cluster furniture,
+  flip the cluster module's `gateway.install_crds` off **and** drop the `dependsOn` in `aws/cilium.yaml` in the same
+  change — `gateway-api-crds` stops existing at that point, and a dangling `dependsOn` would freeze `cilium`'s
+  reconciliation. The `gateway-api-crds` Kustomization itself is pruned but the CRDs are orphaned (`prune: false`) —
+  deleting them would cascade into every Gateway and HTTPRoute.

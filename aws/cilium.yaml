@@ -1,0 +1,30 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: cilium
+  namespace: flux-system
+spec:
+  interval: 30m
+  retryInterval: 2m
+  timeout: 15m
+  wait: true
+  prune: true
+  # gateway-api-crds only exists while GATEWAY_API_CRDS holds (see
+  # aws/components/gateway/resourceset-crds.yaml) -- remove this dependsOn
+  # in the same change that flips the toggle off, or this Kustomization
+  # dangles on a dependency that no longer exists and Cilium stops
+  # reconciling entirely. While the toggle holds, this is what makes the
+  # terraform -> Flux handoff (see aws/components/cilium) land after the
+  # Gateway API CRDs establish, rather than racing them.
+  dependsOn:
+    - name: gateway-api-crds
+  sourceRef:
+    kind: OCIRepository
+    name: flux-system
+  path: ./aws/components/cilium
+  postBuild:
+    substituteFrom:
+      - kind: ConfigMap
+        name: cluster-vars

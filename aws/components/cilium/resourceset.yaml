@@ -1,0 +1,129 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+
+# Cilium: hands off from terraform's bootstrap-only helm_release
+# (terraform-aws-eks-flux's cilium.tf, lifecycle.ignore_changes = all) to
+# Flux -- the same name-matched adoption trick as flux/flux-operator (see
+# aws/components/flux/resourceset.yaml): the HelmRelease below is "cilium"
+# in kube-system, so helm-controller takes over the existing release
+# storage instead of installing a second one. Chart version then follows
+# the newest mirrored tag like every other component, not terraform's
+# one-time var.cilium.chart_version.
+#
+# values reproduce terraform's local.cilium_values verbatim so the handoff
+# diffs nothing on the wire: ENI IPAM, native routing, kube-proxy
+# replacement, and the Gateway API controller this component exists to
+# unstick (see aws/cilium.yaml's dependsOn and the README's Gateway API
+# CRDs caveat -- EKS ships no gateway.networking.k8s.io CRDs, and Cilium
+# only turns its Gateway API controller on when they're present at
+# agent/operator startup). k8sServiceHost and eni.subnetIDsFilter are
+# cluster-specific (terraform's cluster_endpoint_host / pod_subnet_ids
+# locals), so they arrive as cluster vars rather than being hardcoded here.
+#
+# var.cilium.helm_values (terraform's per-cluster override map, default
+# {}) is deliberately NOT reproduced -- confirm no live cluster's caller
+# sets one (helm get values cilium -n kube-system) before pointing this
+# component at that cluster, or the first Flux reconcile silently diffs
+# those overrides away.
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSet
+metadata:
+  name: cilium
+  namespace: kube-system
+spec:
+  inputsFrom:
+    - kind: ResourceSetInputProvider
+      name: cilium
+  # The OCIRepository rides resourcesTemplate rather than resources below
+  # (flux-operator renders both and merges them) because the verify
+  # block's SHAPE follows the signing mode: keyed clusters
+  # (SIGNED_IDENTITY_KMS_KEY set) verify against the cosign-pub
+  # public-key Secret rendered here from COSIGN_PUBLIC_KEY, keyless
+  # clusters against the Fulcio identities. Conditional membership of a
+  # map needs a text template.
+  resourcesTemplate: |
+    << $keyed := ne "${SIGNED_IDENTITY_KMS_KEY:=}" "" >>
+    << if ne "${COSIGN_PUBLIC_KEY:=}" "" >>
+    ---
+    # The signing key's public half (published base64-encoded by
+    # terraform, so it drops straight into data); source-controller
+    # verifies the chart artifact against it in keyed mode.
+    apiVersion: v1
+    kind: Secret
+    metadata:
+      name: cosign-pub
+      namespace: kube-system
+    type: Opaque
+    data:
+      cosign.pub: ${COSIGN_PUBLIC_KEY:=}
+    << end >>
+    ---
+    apiVersion: source.toolkit.fluxcd.io/v1
+    kind: OCIRepository
+    metadata:
+      name: cilium
+      namespace: kube-system
+    spec:
+      interval: 1h
+      url: oci://${PLATFORM_REGISTRY}/charts/cilium
+      provider: "${OCI_PROVIDER}"
+      ref:
+        tag: << inputs.tag >>
+      verify:
+        provider: cosign
+        << if $keyed >>
+        # Keyed: verified against the KMS signing key's public half.
+        secretRef:
+          name: cosign-pub
+        << else >>
+        # Keyless: the chart must carry a Fulcio certificate from the
+        # flux-containers publish workflow. Single-quoted: the values
+        # are regexes whose backslashes a double-quoted scalar would
+        # mangle.
+        matchOIDCIdentity:
+          - issuer: '${SIGNED_IDENTITY_ISSUER}'
+            subject: '${SIGNED_IDENTITY_CHARTS}'
+        << end >>
+  resources:
+    - apiVersion: helm.toolkit.fluxcd.io/v2
+      kind: HelmRelease
+      metadata:
+        # Matches terraform's bootstrap release name -- adoption, not a
+        # second install.
+        name: cilium
+        namespace: kube-system
+      spec:
+        interval: 30m
+        timeout: 10m
+        chartRef:
+          kind: OCIRepository
+          name: cilium
+          namespace: kube-system
+        values:
+          eni:
+            enabled: true
+            subnetIDsFilter: ${CILIUM_POD_SUBNET_IDS}
+            awsReleaseExcessIPs: true
+          ipam:
+            mode: eni
+          routingMode: native
+          egressMasqueradeInterfaces: "eth+"
+          kubeProxyReplacement: true
+          k8sServiceHost: ${CILIUM_K8S_SERVICE_HOST}
+          k8sServicePort: 443
+          gatewayAPI:
+            enabled: true
+          nodeinit:
+            enabled: true
+          operator:
+            replicas: 1
+            podAnnotations:
+              # Bumped in lockstep with the vendored Gateway API CRDs'
+              # `v=` (aws/components/gateway-crds/kustomization.yaml) --
+              # forces a rollout so agent + operator re-check CRD
+              # presence on every future CRD version change, the same way
+              # aws/cilium.yaml's dependsOn forces it once for the initial
+              # terraform -> Flux handoff.
+              patchy.bitwisemedia.uk/gateway-api-crds-version: v1.6.1
+          podAnnotations:
+            patchy.bitwisemedia.uk/gateway-api-crds-version: v1.6.1

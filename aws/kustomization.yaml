@@ -11,6 +11,9 @@ resources:
   # flux managing flux: the operator + FluxInstance HelmReleases (adopted
   # from the terraform bootstrap) follow the newest mirrored charts
   - flux.yaml
+  # cilium managing cilium: same adoption trick, one step behind the
+  # gateway-api-crds Kustomization (see aws/cilium.yaml's dependsOn)
+  - cilium.yaml
   - kyverno.yaml
   - kyverno-policies.yaml
   - cert-manager.yaml
