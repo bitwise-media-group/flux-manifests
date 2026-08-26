@@ -5,5 +5,5 @@ kind: Kustomization
 resources:
   - namespace.yaml
   - certificate.yaml
-  - gateway.yaml
+  - resourceset-gateway.yaml
   - resourceset-crds.yaml

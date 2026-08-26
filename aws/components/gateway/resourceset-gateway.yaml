@@ -1,0 +1,130 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+
+# The platform's shared Gateway. Cilium's Gateway API implementation
+# materialises one LoadBalancer Service (cilium-gateway-platform), which
+# the AWS Load Balancer Controller turns into an NLB -- the infrastructure
+# annotations propagate to that Service, carrying the scheme, the subnets
+# the NLB spans, and the instance target type (the only type the
+# controller supports under a non-VPC-CNI datapath -- see
+# GATEWAY_NLB_TARGET_TYPE in terraform-aws-eks-flux).
+#
+# Two shapes, chosen by terraform (gateway.private -> GATEWAY_NLB_SCHEME):
+# internet-facing on the public subnets, pinned to the terraform-reserved
+# Elastic IPs by allocation id (one per subnet, an NLB requirement); or
+# internal on the node subnets, where EIPs cannot apply and the
+# allocations var arrives empty -- which is why this is a ResourceSet: an
+# internal NLB needs the eip-allocations annotation ABSENT, not empty, so
+# the template gates it on the var. Reachability then comes from the
+# private zone's records (split-horizon external-dns) instead of static
+# public addresses.
+#
+# Cluster destroy/recreate converges back to the same endpoints either
+# way, so DNS barely blips even before external-dns reconverges. Five
+# listeners, one per hostname, each admitting routes only from its owning
+# namespace: patchy's machine edge (integration-controller webhook
+# receivers), human edge (status page) and evaluation API (evolve), the
+# dex OIDC issuer, and the Flux status web UI. All terminate with the one
+# patchy-tls certificate, which carries every name.
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSet
+metadata:
+  name: gateway
+  namespace: gateway
+spec:
+  resourcesTemplate: |
+    ---
+    apiVersion: gateway.networking.k8s.io/v1
+    kind: Gateway
+    metadata:
+      name: platform
+      namespace: gateway
+    spec:
+      gatewayClassName: cilium
+      infrastructure:
+        annotations:
+          # external = the AWS Load Balancer Controller reconciles this
+          # Service (the in-tree provider must not race it for the NLB)
+          service.beta.kubernetes.io/aws-load-balancer-type: external
+          service.beta.kubernetes.io/aws-load-balancer-scheme: ${GATEWAY_NLB_SCHEME}
+          service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: ${GATEWAY_NLB_TARGET_TYPE}
+          service.beta.kubernetes.io/aws-load-balancer-subnets: ${GATEWAY_SUBNETS}
+          << if ne "${GATEWAY_EIP_ALLOCATIONS}" "" >>
+          service.beta.kubernetes.io/aws-load-balancer-eip-allocations: ${GATEWAY_EIP_ALLOCATIONS}
+          << end >>
+      listeners:
+        - name: https-integrations
+          protocol: HTTPS
+          port: 443
+          hostname: integrations.${PATCHY_DOMAIN}
+          tls:
+            mode: Terminate
+            certificateRefs:
+              - kind: Secret
+                name: patchy-tls
+          allowedRoutes:
+            namespaces:
+              from: Selector
+              selector:
+                matchLabels:
+                  kubernetes.io/metadata.name: patchy
+        - name: https-status
+          protocol: HTTPS
+          port: 443
+          hostname: status.${PATCHY_DOMAIN}
+          tls:
+            mode: Terminate
+            certificateRefs:
+              - kind: Secret
+                name: patchy-tls
+          allowedRoutes:
+            namespaces:
+              from: Selector
+              selector:
+                matchLabels:
+                  kubernetes.io/metadata.name: patchy
+        - name: https-evals
+          protocol: HTTPS
+          port: 443
+          hostname: evals.${PATCHY_DOMAIN}
+          tls:
+            mode: Terminate
+            certificateRefs:
+              - kind: Secret
+                name: patchy-tls
+          allowedRoutes:
+            namespaces:
+              from: Selector
+              selector:
+                matchLabels:
+                  kubernetes.io/metadata.name: patchy
+        - name: https-dex
+          protocol: HTTPS
+          port: 443
+          hostname: dex.${PATCHY_DOMAIN}
+          tls:
+            mode: Terminate
+            certificateRefs:
+              - kind: Secret
+                name: patchy-tls
+          allowedRoutes:
+            namespaces:
+              from: Selector
+              selector:
+                matchLabels:
+                  kubernetes.io/metadata.name: dex
+        - name: https-flux
+          protocol: HTTPS
+          port: 443
+          hostname: flux.${PATCHY_DOMAIN}
+          tls:
+            mode: Terminate
+            certificateRefs:
+              - kind: Secret
+                name: patchy-tls
+          allowedRoutes:
+            namespaces:
+              from: Selector
+              selector:
+                matchLabels:
+                  kubernetes.io/metadata.name: flux-system
