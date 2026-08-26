@@ -6,3 +6,4 @@ resources:
   - service-accounts.yaml
   - resourceset-secrets.yaml
   - health-check.yaml
+  - network-policy.yaml

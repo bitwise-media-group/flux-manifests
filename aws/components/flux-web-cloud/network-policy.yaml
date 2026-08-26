@@ -1,0 +1,32 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+
+# The chart's flux-operator-web NetworkPolicy admits 9080 from cluster
+# namespaces only, and any ingress policy selecting the pod puts it under
+# default-deny for every source no rule matches. The Cilium Gateway's
+# data plane is the node-local Envoy, whose traffic carries the reserved
+# `ingress` identity -- not a pod, so no namespaceSelector (or ipBlock)
+# can ever admit it, and the SYN drops before the operator sees a byte
+# (the edge answers "upstream connect error ... connection timeout").
+# Kubernetes NetworkPolicy cannot name a Cilium entity, hence the CNP.
+#
+# 9080 only: the NLB health-checks the gateway Service's nodes, and the
+# kubelet's own probes on 8081 arrive as the `host` entity, which the
+# node's allow already admits.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: flux-web-gateway
+  namespace: flux-system
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: flux-operator
+      app.kubernetes.io/instance: flux-operator
+  ingress:
+    - fromEntities:
+        - ingress
+      toPorts:
+        - ports:
+            - port: "9080"
+              protocol: TCP

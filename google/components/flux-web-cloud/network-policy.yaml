@@ -1,0 +1,36 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+
+# The chart's flux-operator-web NetworkPolicy admits 9080 from cluster
+# namespaces only; the GKE Gateway's traffic (data plane and health checks
+# alike) arrives from the Google Front End ranges, which no
+# namespaceSelector matches. Policies are additive, so this opens exactly
+# the web and health ports to exactly those ranges.
+#
+# 8081 is the health port the HealthCheckPolicy beside this file aims the
+# LB prober at instead of the SSO-fronted UI on 9080. It serves only
+# /healthz and /readyz -- no data plane -- and the GFE prober firewall rule
+# is all-TCP, so this NetworkPolicy is the only thing gating it.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: flux-web-gfe
+  namespace: flux-system
+spec:
+  policyTypes:
+    - Ingress
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: flux-operator
+      app.kubernetes.io/instance: flux-operator
+  ingress:
+    - from:
+        - ipBlock:
+            cidr: 130.211.0.0/22
+        - ipBlock:
+            cidr: 35.191.0.0/16
+      ports:
+        - protocol: TCP
+          port: 9080
+        - protocol: TCP
+          port: 8081

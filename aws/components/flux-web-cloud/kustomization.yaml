@@ -5,3 +5,4 @@ kind: Kustomization
 resources:
   - service-accounts.yaml
   - resourceset-secrets.yaml
+  - network-policy.yaml
