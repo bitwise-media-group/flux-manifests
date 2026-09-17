@@ -1,18 +1,25 @@
 # Copyright 2026 BitWise Media Group Ltd
 # SPDX-License-Identifier: MIT
 
-# Publish Edge — push every merge to main as the `edge` channel OCI artifact,
-# signed keylessly like the release channels. Dev/sandbox clusters syncing
-# `edge` validate trunk continuously; `staging` and `stable` still only ever
-# see release-tagged artifacts (publish.yaml / promote.yaml).
+# Publish Edge - push every merge to main as the `edge` channel (one image
+# per component plus the entrypoint), signed keylessly like the release
+# channels. Dev/sandbox clusters syncing `edge` validate trunk continuously;
+# `staging` and `stable` still only ever see release-tagged artifacts
+# (publish.yaml / promote.yaml).
+#
+# The push lands on `edge-next` and is signed there; only then does the
+# `edge` tag move onto the same digests. A cluster following `edge` can
+# therefore never pull an artifact whose signature is not yet attached
+# (which used to fail verification until the next run replaced it).
 #
 # This is a separate workflow file on purpose: the Fulcio certificate subject
 # is the workflow path + ref, so edge artifacts are signed as
-# …/flux-manifests/.github/workflows/publish-edge.yaml@refs/heads/main —
+# .../flux-manifests/.github/workflows/publish-edge.yaml@refs/heads/main -
 # a distinct identity that edge clusters pin, while the release channels'
 # verify patches keep matching only publish.yaml@refs/tags/v*. The
-# manifest-publisher service account's WIF trust admits this workflow via the
-# refs/heads/main subject binding in the artifact-store terraform.
+# manifest-publisher service account's WIF trust (and the AWS role's OIDC
+# trust) admit this workflow via the refs/heads/main subject binding in the
+# artifact-store terraform.
 name: Publish Edge Manifests
 
 on:
@@ -23,8 +30,7 @@ permissions: {}
 
 # serialise edge publishes so an older commit can never overwrite the tag
 # after a newer one; cancel-in-progress stays off so a run is never killed
-# between push and sign (an unsigned edge artifact fails cluster verification
-# until the next run replaces it)
+# between push and sign
 concurrency:
   group: publish-edge
   cancel-in-progress: false
@@ -34,7 +40,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      # WIF token exchange + cosign keyless both ride the job's OIDC token
+      # WIF / AWS OIDC token exchange + cosign keyless all ride the job's OIDC token
       id-token: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -54,38 +60,49 @@ jobs:
           service_account: ${{ vars.GCP_MANIFEST_PUBLISHER_SA }}
           token_format: access_token
 
-      - name: push and sign edge
+      - name: login to Artifact Registry
         env:
           ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
           PLATFORM_REGISTRY: ${{ vars.PLATFORM_REGISTRY }}
         run: |
-          set -euo pipefail
-          host="${PLATFORM_REGISTRY%%/*}"
-          # writes ~/.docker/config.json — the keychain flux push and cosign both read
-          docker login "$host" --username oauth2accesstoken --password-stdin <<<"$ACCESS_TOKEN"
+          # writes ~/.docker/config.json - the keychain flux push and cosign both read
+          docker login "${PLATFORM_REGISTRY%%/*}" --username oauth2accesstoken --password-stdin <<<"$ACCESS_TOKEN"
 
-          url="oci://${PLATFORM_REGISTRY}/flux-manifests"
+      # The AWS platform registry, gated on the org variable: an org without
+      # an AWS artifact store publishes to Artifact Registry alone.
+      - name: authenticate to AWS
+        if: vars.AWS_MANIFEST_PUBLISHER_ROLE != ''
+        uses: aws-actions/configure-aws-credentials@254c19bd240aabef8777f48595e9d2d7b972184b # v6.2.1
+        with:
+          role-to-assume: ${{ vars.AWS_MANIFEST_PUBLISHER_ROLE }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: login to ECR
+        if: vars.AWS_MANIFEST_PUBLISHER_ROLE != ''
+        env:
+          AWS_PLATFORM_REGISTRY: ${{ vars.AWS_PLATFORM_REGISTRY }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+        run: |
+          aws ecr get-login-password --region "$AWS_REGION" \
+            | docker login "${AWS_PLATFORM_REGISTRY%%/*}" --username AWS --password-stdin
+
+      - name: push and sign edge-next, then move edge
+        env:
+          PLATFORM_REGISTRY: ${{ vars.PLATFORM_REGISTRY }}
+          AWS_PLATFORM_REGISTRY: ${{ vars.AWS_MANIFEST_PUBLISHER_ROLE != '' && vars.AWS_PLATFORM_REGISTRY || '' }}
+          SOURCE: ${{ github.server_url }}/${{ github.repository }}
+        run: |
+          set -euo pipefail
+          export REGISTRIES="${PLATFORM_REGISTRY}${AWS_PLATFORM_REGISTRY:+ ${AWS_PLATFORM_REGISTRY}}"
 
           # no version tag: edge tracks the main head directly, and the
           # revision carries the exact commit for forensics
-          digest="$(flux push artifact "$url:edge" \
-            --path . \
-            --source "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
-            --revision "main@sha1:$GITHUB_SHA" \
-            --output json | jq -r .digest)"
-
-          # keyless: the Fulcio certificate subject is exactly this workflow at
-          # refs/heads/main — what edge clusters' FluxInstance verify patch matches.
-          # cosign v3 stores the signature as a sigstore bundle via the OCI
-          # referrers API; flux >= 2.8 and kyverno's SigstoreBundle rules read
-          # that format. --use-signing-config=false only pins the v2 trust
-          # services (Fulcio + Rekor v1) — it does not change the format.
-          cosign sign --yes --use-signing-config=false \
-            "${PLATFORM_REGISTRY}/flux-manifests@$digest"
+          ./scripts/publish.sh push edge-next "main@sha1:$GITHUB_SHA"
+          ./scripts/publish.sh tag edge-next edge
 
           {
-            echo "## Published flux-manifests edge"
+            echo "## Published platform edge"
             echo
-            echo "- digest: \`$digest\`"
+            echo "- registries: \`$REGISTRIES\`"
             echo "- revision: \`main@sha1:$GITHUB_SHA\`"
           } >> "$GITHUB_STEP_SUMMARY"

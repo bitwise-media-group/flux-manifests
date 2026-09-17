@@ -1,0 +1,123 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+
+# The platform entrypoint for aws clusters: the one object the FluxInstance
+# syncs (oci://<registry>/manifests/platform, path aws). Every component
+# below is its own OCI image (oci://<registry>/manifests/<name>, published
+# from components/<name> by scripts/publish.sh), and this ResourceSet
+# emits, per elected component, the OCIRepository that pulls it and the
+# Kustomization that applies its aws overlay - so the list IS the graph:
+# ordering, timeouts, election gates and per-component release pins live
+# here and nowhere else.
+#
+# Two tiers. The core tier (kyverno, kyverno-policies, flux, cilium,
+# cert-manager, cert-manager-issuers, aws-load-balancer-controller,
+# external-dns, gateway, rbac, secret-sync) has no election gate and is
+# emitted on every cluster; the electable tier (dex, flux-web, arc)
+# deploys only when named in the PLATFORM_COMPONENTS cluster var - short
+# names, comma-separated. Unset elects dex and flux-web; the reserved
+# name "none" (what terraform publishes for an empty election) matches
+# nothing. dex is not elected by hand: the cluster module includes it
+# exactly when its sso toggle is on.
+#
+# secret-sync is unconditional on aws: the platform cannot know which
+# applications consume out-of-band secrets, and the machinery must exist
+# before any of them renders a SecretSync.
+#
+# Each entry's ref (<NAME>_MANIFESTS_REF, a caller extra) pins that one
+# component to a tag; empty follows the cluster's release channel
+# (FLUX_SYNC_CHANNEL), so a cluster can soak or hold back a single
+# component without a platform release. Every dict carries every key:
+# the template renders with missingkey=error.
+#
+# $on is declared in the outer scope so the inner range over each entry's
+# when-list can flip it; ${...} substitution runs before templating, so
+# the var names below are literal text to the template engine.
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSet
+metadata:
+  name: platform
+  namespace: flux-system
+spec:
+  inputs:
+    - components: "${PLATFORM_COMPONENTS:=dex,flux-web}"
+  resourcesTemplate: |
+    << $elected := splitList "," inputs.components >>
+    << $keyed := ne "${SIGNED_IDENTITY_KMS_KEY:=}" "" >>
+    << $crds := eq "${GATEWAY_API_CRDS}" "true" >>
+    << $on := true >>
+    << $components := list
+      (dict "name" "kyverno" "timeout" "10m" "dependsOn" (list) "when" (list) "ref" "${KYVERNO_MANIFESTS_REF:=}")
+      (dict "name" "kyverno-policies" "timeout" "5m" "dependsOn" (list "kyverno") "when" (list) "ref" "${KYVERNO_POLICIES_MANIFESTS_REF:=}")
+      (dict "name" "flux" "timeout" "5m" "dependsOn" (list "kyverno-policies") "when" (list) "ref" "${FLUX_MANIFESTS_REF:=}")
+      (dict "name" "cilium" "timeout" "15m" "dependsOn" (ternary (list "gateway-api-crds") (list) $crds) "when" (list) "ref" "${CILIUM_MANIFESTS_REF:=}")
+      (dict "name" "cert-manager" "timeout" "10m" "dependsOn" (list "kyverno-policies") "when" (list) "ref" "${CERT_MANAGER_MANIFESTS_REF:=}")
+      (dict "name" "cert-manager-issuers" "timeout" "5m" "dependsOn" (list "cert-manager") "when" (list) "ref" "${CERT_MANAGER_ISSUERS_MANIFESTS_REF:=}")
+      (dict "name" "aws-load-balancer-controller" "timeout" "5m" "dependsOn" (list "kyverno-policies") "when" (list) "ref" "${AWS_LOAD_BALANCER_CONTROLLER_MANIFESTS_REF:=}")
+      (dict "name" "external-dns" "timeout" "5m" "dependsOn" (list "kyverno-policies") "when" (list) "ref" "${EXTERNAL_DNS_MANIFESTS_REF:=}")
+      (dict "name" "gateway" "timeout" "5m" "dependsOn" (list "cert-manager-issuers") "when" (list) "ref" "${GATEWAY_MANIFESTS_REF:=}")
+      (dict "name" "rbac" "timeout" "5m" "dependsOn" (list) "when" (list) "ref" "${RBAC_MANIFESTS_REF:=}")
+      (dict "name" "secret-sync" "timeout" "5m" "dependsOn" (list "kyverno-policies") "when" (list) "ref" "${SECRET_SYNC_MANIFESTS_REF:=}")
+      (dict "name" "dex" "timeout" "5m" "dependsOn" (list "kyverno-policies" "gateway" "secret-sync") "when" (list "dex") "ref" "${DEX_MANIFESTS_REF:=}")
+      (dict "name" "flux-web" "timeout" "5m" "dependsOn" (list "gateway" "secret-sync" "dex") "when" (list "flux-web" "dex") "ref" "${FLUX_WEB_MANIFESTS_REF:=}")
+      (dict "name" "arc" "timeout" "5m" "dependsOn" (list "kyverno-policies") "when" (list "arc") "ref" "${ARC_MANIFESTS_REF:=}")
+    >>
+    << range $c := $components >>
+    << $on = true >>
+    << range $w := $c.when >><< if not (has $w $elected) >><< $on = false >><< end >><< end >>
+    << if $on >>
+    ---
+    # The component's signed manifests image, verified like the entrypoint
+    # itself: keyed clusters against the cosign-pub Secret the bootstrap
+    # delivered to flux-system, keyless against the manifests publish
+    # identity. Single-quoted: the values are regexes whose backslashes a
+    # double-quoted scalar would mangle.
+    apiVersion: source.toolkit.fluxcd.io/v1
+    kind: OCIRepository
+    metadata:
+      name: platform-<< $c.name >>
+      namespace: flux-system
+    spec:
+      interval: 5m
+      url: oci://${PLATFORM_REGISTRY}/manifests/<< $c.name >>
+      provider: "${OCI_PROVIDER}"
+      ref:
+        tag: << $c.ref | default "${FLUX_SYNC_CHANNEL}" | quote >>
+      verify:
+        provider: cosign
+        << if $keyed >>
+        secretRef:
+          name: cosign-pub
+        << else >>
+        matchOIDCIdentity:
+          - issuer: '${SIGNED_IDENTITY_ISSUER}'
+            subject: '${SIGNED_IDENTITY_MANIFESTS}'
+        << end >>
+    ---
+    apiVersion: kustomize.toolkit.fluxcd.io/v1
+    kind: Kustomization
+    metadata:
+      name: << $c.name >>
+      namespace: flux-system
+    spec:
+      interval: 30m
+      retryInterval: 2m
+      timeout: << $c.timeout >>
+      wait: true
+      prune: true
+      << if $c.dependsOn >>
+      dependsOn:
+        << range $d := $c.dependsOn >>
+        - name: << $d >>
+        << end >>
+      << end >>
+      sourceRef:
+        kind: OCIRepository
+        name: platform-<< $c.name >>
+      path: ./aws
+      postBuild:
+        substituteFrom:
+          - kind: ConfigMap
+            name: cluster-vars
+    << end >>
+    << end >>

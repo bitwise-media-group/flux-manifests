@@ -1,0 +1,15 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+
+# The google overlay of the flux-web component: the cloud-neutral core (the
+# HTTPRoute and the flux-system namespace's gateway-access label) plus
+# this cloud's secret-sync dialect for the Web Config document and the
+# GKE Gateway edge admission (GFE-range NetworkPolicy + HealthCheckPolicy).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../common
+  - service-accounts.yaml
+  - resourceset-secrets.yaml
+  - health-check.yaml
+  - network-policy.yaml

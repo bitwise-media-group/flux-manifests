@@ -1,0 +1,85 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+
+# Identity groups -> Kubernetes RBAC. The subject groups arrive as
+# RBAC_GROUP_* cluster vars (empty string when the role is unbound or
+# group RBAC is off - see the cluster module's var.rbac); kustomize can't
+# conditionally emit resources, so a ResourceSet template guards each
+# binding: an empty group renders nothing rather than an invalid empty
+# subject.
+#
+# The vars are read inline in the template text, never via spec.inputs:
+# post-build substitution round-trips the manifest through YAML, re-typing
+# input values on the way - an empty var becomes null (the key vanishes on
+# apply, and the template engine's missingkey=error fails the build) and
+# true/false become bools that break string comparison.
+#
+# Cluster roles only. The platform binds the built-in cluster-admin, edit
+# and view roles and nothing narrower: an application's own roles (a
+# status page's verbs, a findings viewer) are bound by that application,
+# in its own namespaces, against the same RBAC_GROUP_* vars - which is
+# also why the developers group has no platform binding: what a developer
+# may do is an application decision. The same group names satisfy every
+# authenticator that asserts them (the cloud's control-plane group
+# membership, and the groups claim dex asserts to the Flux status UI and
+# to kubectl).
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSet
+metadata:
+  name: rbac
+  namespace: flux-system
+spec:
+  resourcesTemplate: |
+    << if ne "${RBAC_GROUP_ADMINS:=}" "" >>
+    ---
+    # admins: everything, everywhere - flux objects included.
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRoleBinding
+    metadata:
+      name: admins-cluster-admin
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: cluster-admin
+    subjects:
+      - kind: Group
+        apiGroup: rbac.authorization.k8s.io
+        name: ${RBAC_GROUP_ADMINS}
+    << end >>
+    << if ne "${RBAC_GROUP_DEVOPS:=}" "" >>
+    ---
+    # devops: cluster-wide write on namespaced objects (the built-in edit
+    # role, flux objects included via its aggregation) - RBAC, CRDs and the
+    # rest of cluster-scoped administration stay with admins.
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRoleBinding
+    metadata:
+      name: devops-cluster-edit
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: edit
+    subjects:
+      - kind: Group
+        apiGroup: rbac.authorization.k8s.io
+        name: ${RBAC_GROUP_DEVOPS}
+    << end >>
+    << if ne "${RBAC_GROUP_VIEWERS:=}" "" >>
+    ---
+    # viewers: cluster-wide read-only. The built-in view role aggregates
+    # flux's flux-view rules; CRDs without aggregation labels stay
+    # invisible - an application that wants its objects readable binds
+    # its own viewer role.
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRoleBinding
+    metadata:
+      name: viewers-cluster-view
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: view
+    subjects:
+      - kind: Group
+        apiGroup: rbac.authorization.k8s.io
+        name: ${RBAC_GROUP_VIEWERS}
+    << end >>

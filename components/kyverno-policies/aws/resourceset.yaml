@@ -1,0 +1,103 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+
+# Every pod image must carry a cosign signature from the platform publish
+# workflow, except cloud-managed system images (the cloud signs and delivers
+# those, not the platform pipeline). Image-based exclusion is deliberate:
+# EKS add-on pods appear in kube-system and new managed pods appear with
+# cluster features - the registries are the stable contract. kube-system
+# itself is additionally excluded at the webhook level by the kyverno chart
+# defaults.
+#
+# The policy rides a ResourceSet rather than a plain manifest because the
+# attestor SHAPE follows the signing mode: keyless clusters trust the Fulcio
+# identities, KMS-keyed clusters (SIGNED_IDENTITY_KMS_KEY set) resolve the
+# signing key through the cloud KMS API at admission - the terraform grants
+# the kyverno controllers GetPublicKey/Verify on the key. Conditional
+# membership of a list needs a text template.
+#
+# One identity, no application carve-outs: an application whose images are
+# signed elsewhere ships a PolicyException in the kyverno namespace (the
+# kyverno component enables them there) scoped to its own namespaces,
+# beside its own ClusterPolicy verifying that identity - so every image is
+# still verified by exactly one policy, and the platform never learns an
+# application's registry or signer.
+#
+# type: SigstoreBundle: the platform signs with cosign v3, whose signatures
+# are sigstore bundles attached via the OCI referrers API - NOT the legacy
+# .sig tag, which is all the default Cosign verification type reads
+# (--use-signing-config=false in the publish pipelines selects the v2 trust
+# services, it does not change the storage format). The tlog entry travels
+# inside the bundle and kyverno checks it offline against the sigstore TUF
+# trusted root; the rekor.url on the keyless entry exists only because
+# kyverno's CRD validation demands rekor-or-roots on every keyless attestor
+# regardless of type. Flux verifies the same bundles independently
+# (source-controller >= v1.8 / Flux 2.8).
+#
+# failureAction starts as Audit via the cluster var default: soak a fresh
+# cluster, audit the PolicyReports, then flip KYVERNO_FAILURE_ACTION=Enforce
+# in terraform's flux.cluster_vars - no manifests release needed.
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSet
+metadata:
+  name: kyverno-policies
+  namespace: kyverno
+spec:
+  resourcesTemplate: |
+    # The KMS key is compared inline, not via spec.inputs: post-build
+    # substitution turns an empty input into null, the key vanishes on
+    # apply, and the template's missingkey=error fails the build.
+    << $keyed := ne "${SIGNED_IDENTITY_KMS_KEY:=}" "" >>
+    ---
+    apiVersion: kyverno.io/v1
+    kind: ClusterPolicy
+    metadata:
+      name: verify-platform-signature
+    spec:
+      webhookConfiguration:
+        failurePolicy: Fail
+        timeoutSeconds: 30
+      rules:
+        - name: verify-platform-signature
+          match:
+            any:
+              - resources:
+                  kinds:
+                    - Pod
+          verifyImages:
+            - imageReferences:
+                - "*"
+              skipImageReferences:
+                - "registry.k8s.io/*"
+                # EKS add-on pods (coredns, kube-proxy, the Pod Identity
+                # agent, ...) pull from the Amazon-owned distro registries
+                - "602401143452.dkr.ecr.*"
+                - "*.dkr.ecr.*.amazonaws.com/eks/*"
+              type: SigstoreBundle
+              failureAction: "${KYVERNO_FAILURE_ACTION:=Audit}"
+              required: true
+              # Digest rewriting stays off: kyverno rejects mutateDigest
+              # under an Audit failureAction, and failureAction is
+              # cluster-var-driven, so the policy must be valid in both
+              # modes. verifyDigest follows suit - without the mutation,
+              # tag-referenced images carry no digest and would fail that
+              # check spuriously. What is verified is the cosign signature
+              # on whatever the tag resolves to at admission.
+              mutateDigest: false
+              verifyDigest: false
+              attestors:
+                - count: 1
+                  entries:
+                    << if $keyed >>
+                    # Keyed: the signing key, resolved through the AWS KMS
+                    # API in cosign's awskms URI scheme.
+                    - keys:
+                        kms: awskms:///${SIGNED_IDENTITY_KMS_KEY}
+                    << else >>
+                    - keyless:
+                        subjectRegExp: '${SIGNED_IDENTITY_IMAGES}'
+                        issuerRegExp: '${SIGNED_IDENTITY_ISSUER}'
+                        # satisfies CRD validation only - see header comment
+                        rekor:
+                          url: https://rekor.sigstore.dev
+                    << end >>

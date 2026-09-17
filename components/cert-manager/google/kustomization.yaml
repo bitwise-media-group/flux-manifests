@@ -1,0 +1,11 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+
+# The google overlay of the cert-manager component: nothing cloud-specific, so it is
+# the cloud-neutral common tier verbatim. Every component ships one
+# overlay per cloud so the platform entrypoint can point every
+# Kustomization at ./<tree> uniformly.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../common

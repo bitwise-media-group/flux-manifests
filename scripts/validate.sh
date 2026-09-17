@@ -4,20 +4,29 @@
 
 # Render and validate everything each cluster would apply, once per tree
 # and signing mode ({google,aws} x {keyless,keyed}):
-#   1. kustomize-build each component (common/ + the tree's) and the tree root
+#   1. kustomize-build every component's overlay for the tree
+#      (components/<name>/<tree>, which pulls in ../common) and the
+#      platform entrypoint (platform/<tree>)
 #   2. substitute cluster-vars the way the Kustomizations do (postBuild),
 #      faithfully to the controller's roundtrip -- so an empty var that
 #      would become null on a cluster becomes null (and fails) here
-#   3. render ResourceSets with sample inputs (flux-operator CLI)
+#   3. render ResourceSets with sample inputs (flux-operator CLI), the
+#      platform entrypoint included (every component elected, and the
+#      reserved "none" election)
 #   4. kubeconform the results against Flux + flux-operator + component CRD
 #      schemas
-# plus the structural guards that keep the tree split honest:
-#   - common/ may not branch on cloud, and may reference a var published by
-#     only one cloud's module solely through a := default
-#   - a per-cloud tree may not carry a := default whose only purpose was to
-#     survive the other cloud's strict substitution
+# plus the structural guards that keep the layout honest:
+#   - components/*/common may not branch on cloud, and may reference a var
+#     published by only one cloud's module solely through a := default
+#   - a per-cloud overlay (or entrypoint) may not carry a := default whose
+#     only purpose was to survive the other cloud's strict substitution
 #   - no ${VAR}-bearing quoted scalar may substitute to null (the guard
 #     self-tests at startup, so it cannot rot)
+#   - the entrypoint is complete: every component overlay the tree ships is
+#     emitted by the platform ResourceSet, and every dependsOn it emits
+#     resolves to a Kustomization something emits
+#   - the core tier is election-independent: the "none" election still
+#     emits every non-electable component
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -28,6 +37,11 @@ command -v kustomize >/dev/null || { echo "kustomize not found" >&2; exit 1; }
 command -v kubeconform >/dev/null || { echo "kubeconform not found" >&2; exit 1; }
 command -v flux-operator >/dev/null || { echo "flux-operator CLI not found" >&2; exit 1; }
 command -v yq >/dev/null || { echo "yq not found" >&2; exit 1; }
+
+# The electable tier: the only components the platform ResourceSet gates on
+# PLATFORM_COMPONENTS. Everything else under components/ is core and must
+# be emitted whatever the election says (the election-independence guard).
+ELECTABLE="dex flux-web arc"
 
 # --- the per-cloud env contracts -------------------------------------------
 # Each cloud's variable NAME set (base + keyed overlay) doubles as the
@@ -41,6 +55,19 @@ GOOGLE_VARS="$(env_var_names "$ROOT/tests/google.env" "$ROOT/tests/google.keyed.
 
 in_set() { # in_set <name> <newline-separated-set>
   printf '%s\n' "$2" | grep -qx "$1"
+}
+
+# Scalar values across every document of a multi-document file, minus
+# the document separators yq prints between them.
+yq_values() { # yq_values <expression> <file>...
+  local expr="$1"
+  shift
+  yq ea "$expr" "$@" | grep -v '^---$' | sort -u || true
+}
+
+# Every component the tree ships an overlay for.
+shipped_components() { # shipped_components <tree>
+  find "$ROOT/components" -mindepth 2 -maxdepth 2 -type d -name "$1" -exec dirname {} + | while IFS= read -r dir; do basename "$dir"; done | sort -u
 }
 
 # kustomize-controller substitutes in STRICT mode: a bare ${VAR} fails the
@@ -123,101 +150,111 @@ YAML
   rm -rf "$dir"
 }
 
-# common/ serves both clusters verbatim: no cloud branching, and any var
-# only one cloud's module publishes may be referenced solely through a :=
-# default (that is the per-cluster election mechanism -- the other cloud's
-# passes render the election-absent arm, and the null guard proves it
-# renders safely). A BARE single-cloud ${VAR} would fail strict
+# components/*/common serves both clusters verbatim: no cloud branching,
+# and any var only one cloud's module publishes may be referenced solely
+# through a := default (that is the per-cluster election mechanism -- the
+# other cloud's passes render the election-absent arm, and the null guard
+# proves it renders safely). A BARE single-cloud ${VAR} would fail strict
 # substitution on the other cluster.
 check_common_neutral() {
-  local hits var bad=0
-  # shellcheck disable=SC2016 # grep pattern
-  if hits="$(grep -REn 'inputs\.cloud|\$\{CLOUD[:}]' "$ROOT/common" 2>/dev/null)"; then
-    { echo "common/ must not branch on cloud:"; printf '%s\n' "$hits" | sed 's/^/  /'; } >&2
+  local hits var bad=0 dirs
+  dirs="$(find "$ROOT/components" -mindepth 2 -maxdepth 2 -type d -name common)"
+  [[ -n "$dirs" ]] || return 0
+  # shellcheck disable=SC2016,SC2086 # grep pattern; the directory list is deliberately word-split
+  if hits="$(grep -REn 'inputs\.cloud|\$\{CLOUD[:}]' $dirs 2>/dev/null)"; then
+    { echo "components/*/common must not branch on cloud:"; printf '%s\n' "$hits" | sed 's/^/  /'; } >&2
     exit 1
   fi
-  # shellcheck disable=SC2016 # the dollar-brace is the grep pattern, not an expansion
+  # shellcheck disable=SC2016,SC2086 # grep pattern, not an expansion; the directory list is deliberately word-split
   while IFS= read -r var; do
     [[ -n "$var" ]] || continue
     if in_set "$var" "$AWS_VARS" && ! in_set "$var" "$GOOGLE_VARS"; then
-      echo "common/ neutrality: bare \${$var} but $var is only in the aws env contract -- google's strict substitution would fail; guard it with a := default" >&2
+      echo "common neutrality: bare \${$var} but $var is only in the aws env contract -- google's strict substitution would fail; guard it with a := default" >&2
       bad=1
     elif in_set "$var" "$GOOGLE_VARS" && ! in_set "$var" "$AWS_VARS"; then
-      echo "common/ neutrality: bare \${$var} but $var is only in the google env contract -- aws's strict substitution would fail; guard it with a := default" >&2
+      echo "common neutrality: bare \${$var} but $var is only in the google env contract -- aws's strict substitution would fail; guard it with a := default" >&2
       bad=1
     fi
-  done < <(grep -RhoE '\$\{[A-Z][A-Z0-9_]*\}' "$ROOT/common" | tr -d '${}' | sort -u)
+  done < <(grep -RhoE '\$\{[A-Z][A-Z0-9_]*\}' $dirs | tr -d '${}' | sort -u)
   [[ "$bad" -eq 0 ]] || exit 1
 }
 
-# In a per-cloud tree, a := default over a var that tree's own module
-# ALWAYS publishes -- and the other cloud's never does -- is dead code left
-# over from the shared-tree era, kept alive only to survive the other
-# cloud's strict substitution. Genuinely caller-optional defaults (vars in
-# neither contract, or in both) stay.
+# In a per-cloud overlay (or the tree's entrypoint), a := default over a
+# var that tree's own module ALWAYS publishes -- and the other cloud's
+# never does -- is dead code left over from the shared-tree era, kept
+# alive only to survive the other cloud's strict substitution. Genuinely
+# caller-optional defaults (vars in neither contract, or in both) stay.
 check_dead_defaults() { # check_dead_defaults <tree> <own-set> <other-set>
-  local tree="$1" own="$2" other="$3" var bad=0
+  local tree="$1" own="$2" other="$3" var bad=0 dirs
+  dirs="$(find "$ROOT/components" -mindepth 2 -maxdepth 2 -type d -name "$tree"; echo "$ROOT/platform/$tree")"
+  # shellcheck disable=SC2086 # the directory list is deliberately word-split
   while IFS= read -r var; do
     [[ -n "$var" ]] || continue
     if in_set "$var" "$own" && ! in_set "$var" "$other"; then
-      echo "dead default: \${$var:=...} under $tree/ but $var is in $tree's env contract alone -- the default only survived the other cloud; make it a bare \${$var}" >&2
+      echo "dead default: \${$var:=...} under a $tree overlay but $var is in $tree's env contract alone -- the default only survived the other cloud; make it a bare \${$var}" >&2
       bad=1
     fi
-  done < <(grep -RhoE '\$\{[A-Z][A-Z0-9_]*:=' "$ROOT/$tree" | sed 's/^..//; s/:=$//' | sort -u)
+  done < <(grep -RhoE '\$\{[A-Z][A-Z0-9_]*:=' $dirs | sed 's/^..//; s/:=$//' | sort -u)
   [[ "$bad" -eq 0 ]] || exit 1
 }
 
-# Every ResourceSet must have a matching inputs fixture:
-# tests/inputs/{<tree>,common}/<component>/<file>[.<variant>].yaml, the tree
-# directory shadowing common per basename. Two fixture shapes: a plain list
-# of input sets (--inputs-from), or Static ResourceSetInputProvider
-# manifests (--inputs-from-provider) for ResourceSets using the Permute
-# strategy -- Permute namespaces inputs by provider name, and only
-# provider-shaped fixtures reproduce that in the render.
-render_resourcesets() { # render_resourcesets <tree> <out-dir>
-  local tree="$1" out="$2" rs comp file primary vbase variants inputs variant inputs_flag
-  for rs in "$ROOT/common/components"/*/resourceset*.yaml "$ROOT/$tree/components"/*/resourceset*.yaml; do
-    [[ -f "$rs" ]] || continue
-    comp="$(basename "$(dirname "$rs")")"
-    file="$(basename "$rs" .yaml)"
-    primary=""
-    if [[ -f "$ROOT/tests/inputs/$tree/$comp/$file.yaml" ]]; then
-      primary="$ROOT/tests/inputs/$tree/$comp/$file.yaml"
-    elif [[ -f "$ROOT/tests/inputs/common/$comp/$file.yaml" ]]; then
-      primary="$ROOT/tests/inputs/common/$comp/$file.yaml"
-    fi
-    [[ -n "$primary" ]] || { echo "missing test inputs tests/inputs/{$tree,common}/$comp/$file.yaml for $rs" >&2; exit 1; }
-    substitute "$rs" "$out/rs-$comp-$file.yaml"
-    # The primary fixture plus any <file>.<variant>.yaml siblings: each
-    # renders the same ResourceSet with a different input set, so every
-    # side of an input branch (elections) gets rendered and
-    # kubeconform-validated.
-    variants="$( { ls "$ROOT/tests/inputs/common/$comp/" 2>/dev/null || true; ls "$ROOT/tests/inputs/$tree/$comp/" 2>/dev/null || true; } \
-      | grep -E "^$file(\.[A-Za-z0-9-]+)?\.yaml$" | sort -u )"
-    for vbase in $variants; do
-      if [[ -f "$ROOT/tests/inputs/$tree/$comp/$vbase" ]]; then
-        inputs="$ROOT/tests/inputs/$tree/$comp/$vbase"
-      else
-        inputs="$ROOT/tests/inputs/common/$comp/$vbase"
-      fi
-      variant="$(basename "$vbase" .yaml)"
-      inputs_flag="--inputs-from"
-      if grep -q "^kind: ResourceSetInputProvider$" "$inputs"; then
-        inputs_flag="--inputs-from-provider"
-      fi
-      # A fixture may sit on the empty side of an input branch (a disabled
-      # election) and legitimately render nothing — the CLI treats that as
-      # an error, so allow exactly that failure and keep the empty render
-      # for kubeconform.
-      if ! flux-operator build resourceset -f "$out/rs-$comp-$file.yaml" "$inputs_flag" "$inputs" \
-        > "$out/rendered-$comp-$variant.yaml" 2> "$out/rendered-$comp-$variant.err"; then
-        grep -q "no objects were generated" "$out/rendered-$comp-$variant.err" \
-          || { cat "$out/rendered-$comp-$variant.err" >&2; exit 1; }
-        : > "$out/rendered-$comp-$variant.yaml"
-      fi
-      rm -f "$out/rendered-$comp-$variant.err"
+# Render one ResourceSet under every fixture that matches it, searching
+# the fixture directories in order (first match wins per basename). Two
+# fixture shapes: a plain list of input sets (--inputs-from), or Static
+# ResourceSetInputProvider manifests (--inputs-from-provider) for
+# ResourceSets using the Permute strategy -- Permute namespaces inputs by
+# provider name, and only provider-shaped fixtures reproduce that in the
+# render.
+render_one() { # render_one <substituted-rs> <name> <file> <fixture-dir>...
+  local rs="$1" name="$2" file="$3" out variants vbase inputs variant inputs_flag dir
+  shift 3
+  out="$(dirname "$rs")"
+  # The primary fixture plus any <file>.<variant>.yaml siblings: each
+  # renders the same ResourceSet with a different input set, so every
+  # side of an input branch (elections) gets rendered and
+  # kubeconform-validated.
+  variants="$( { for dir in "$@"; do ls "$dir" 2>/dev/null || true; done; } \
+    | grep -E "^$file(\.[A-Za-z0-9-]+)?\.yaml$" | sort -u )"
+  [[ -n "$variants" ]] || { echo "missing test inputs $file.yaml for $name under: $*" >&2; exit 1; }
+  for vbase in $variants; do
+    inputs=""
+    for dir in "$@"; do
+      [[ -f "$dir/$vbase" ]] && { inputs="$dir/$vbase"; break; }
     done
+    variant="$(basename "$vbase" .yaml)"
+    inputs_flag="--inputs-from"
+    if grep -q "^kind: ResourceSetInputProvider$" "$inputs"; then
+      inputs_flag="--inputs-from-provider"
+    fi
+    # A fixture may sit on the empty side of an input branch (a disabled
+    # election) and legitimately render nothing -- the CLI treats that as
+    # an error, so allow exactly that failure and keep the empty render
+    # for kubeconform.
+    if ! flux-operator build resourceset -f "$rs" "$inputs_flag" "$inputs" \
+      > "$out/rendered-$name-$variant.yaml" 2> "$out/rendered-$name-$variant.err"; then
+      grep -q "no objects were generated" "$out/rendered-$name-$variant.err" \
+        || { cat "$out/rendered-$name-$variant.err" >&2; exit 1; }
+      : > "$out/rendered-$name-$variant.yaml"
+    fi
+    rm -f "$out/rendered-$name-$variant.err"
   done
+}
+
+# Every component ResourceSet must have a matching inputs fixture:
+# tests/inputs/<component>/{<tree>,common}/<file>[.<variant>].yaml, the
+# tree directory shadowing common per basename. The entrypoint's fixtures
+# live at tests/inputs/platform/<tree>/.
+render_resourcesets() { # render_resourcesets <tree> <out-dir>
+  local tree="$1" out="$2" rs comp file
+  for rs in "$ROOT/components"/*/common/resourceset*.yaml "$ROOT/components"/*/"$tree"/resourceset*.yaml; do
+    [[ -f "$rs" ]] || continue
+    comp="$(basename "$(dirname "$(dirname "$rs")")")"
+    file="$(basename "$rs" .yaml)"
+    substitute "$rs" "$out/rs-$comp-$file.yaml"
+    render_one "$out/rs-$comp-$file.yaml" "$comp" "$file" "$ROOT/tests/inputs/$comp/$tree" "$ROOT/tests/inputs/$comp/common"
+  done
+  substitute "$ROOT/platform/$tree/resourceset.yaml" "$out/rs-platform-resourceset.yaml"
+  render_one "$out/rs-platform-resourceset.yaml" "platform" "resourceset" "$ROOT/tests/inputs/platform/$tree"
 }
 
 run_pass() { # run_pass <tree> <mode: keyless|keyed>
@@ -225,27 +262,75 @@ run_pass() { # run_pass <tree> <mode: keyless|keyed>
   local out="$BUILD/$tree-$mode"
   mkdir -p "$out"
   echo ">> [$tree/$mode] building components"
-  for dir in "$ROOT/common/components"/*/ "$ROOT/$tree/components"/*/; do
+  for dir in "$ROOT/components"/*/"$tree"/; do
     [[ -d "$dir" ]] || continue
-    name="$(basename "$dir")"
+    name="$(basename "$(dirname "$dir")")"
     kustomize build "$dir" > "$out/raw-$name.yaml"
     substitute "$out/raw-$name.yaml" "$out/component-$name.yaml"
   done
+  echo ">> [$tree/$mode] building the platform entrypoint"
+  kustomize build "$ROOT/platform/$tree" > "$out/raw-platform.yaml"
+  substitute "$out/raw-platform.yaml" "$out/component-platform.yaml"
   echo ">> [$tree/$mode] rendering resourcesets with sample inputs"
   render_resourcesets "$tree" "$out"
+}
+
+# The entrypoint is the graph, so it must be complete: every component
+# overlay the tree ships is pulled by an emitted OCIRepository
+# (platform-<name>) under the all-elected render, nothing is emitted that
+# the tree does not ship, and every dependsOn it emits names a
+# Kustomization that something emits -- the entrypoint itself, or a
+# component ResourceSet (gateway-api-crds rides the gateway component's
+# resourceset-crds.yaml). A dangling dependsOn freezes the dependant
+# forever, which is exactly what this guard exists to catch.
+check_entrypoint_complete() { # check_entrypoint_complete <tree> <render-dir>
+  local tree="$1" out="$2" rendered="$2/rendered-platform-resourceset.yaml" shipped emitted name dep bad=0 known
+  shipped="$(shipped_components "$tree")"
+  emitted="$(yq_values 'select(.kind == "OCIRepository") | .metadata.name' "$rendered" | sed 's/^platform-//')"
+  for name in $shipped; do
+    in_set "$name" "$emitted" || { echo "entrypoint completeness: components/$name/$tree exists but platform/$tree emits no platform-$name OCIRepository" >&2; bad=1; }
+  done
+  for name in $emitted; do
+    in_set "$name" "$shipped" || { echo "entrypoint completeness: platform/$tree emits platform-$name but components/$name/$tree does not exist" >&2; bad=1; }
+  done
+  # Every Flux Kustomization anything emits for this tree (the
+  # entrypoint's plus the component ResourceSets').
+  known="$(yq_values 'select(.kind == "Kustomization" and .apiVersion == "kustomize.toolkit.fluxcd.io/v1") | .metadata.name' "$out"/rendered-*.yaml)"
+  while IFS= read -r dep; do
+    [[ -n "$dep" ]] || continue
+    in_set "$dep" "$known" || { echo "entrypoint completeness: a dependsOn names $dep but nothing emits a Kustomization by that name on $tree" >&2; bad=1; }
+  done < <(yq_values 'select(.kind == "Kustomization") | .spec.dependsOn[]?.name' "$rendered")
+  [[ "$bad" -eq 0 ]] || exit 1
+}
+
+# The core tier deploys whatever the election says: under the reserved
+# "none" election the entrypoint must still emit every non-electable
+# component, and nothing electable.
+check_election_independent() { # check_election_independent <tree> <render-dir>
+  local tree="$1" none="$2/rendered-platform-resourceset.none.yaml" shipped emitted electable name bad=0
+  shipped="$(shipped_components "$tree")"
+  emitted="$(yq_values 'select(.kind == "OCIRepository") | .metadata.name' "$none" | sed 's/^platform-//')"
+  # shellcheck disable=SC2086 # the list is deliberately word-split
+  electable="$(printf '%s\n' $ELECTABLE)"
+  for name in $shipped; do
+    if in_set "$name" "$electable"; then
+      ! in_set "$name" "$emitted" || { echo "election independence: $name is electable but platform/$tree emits it under the none election" >&2; bad=1; }
+    else
+      in_set "$name" "$emitted" || { echo "election independence: $name is core but platform/$tree drops it under the none election" >&2; bad=1; }
+    fi
+  done
+  [[ "$bad" -eq 0 ]] || exit 1
 }
 
 echo ">> null-guard self-test"
 null_guard_selftest
 
-echo ">> common/ neutrality + per-tree dead-default guards"
+echo ">> common neutrality + per-tree dead-default guards"
 check_common_neutral
 check_dead_defaults aws "$AWS_VARS" "$GOOGLE_VARS"
 check_dead_defaults google "$GOOGLE_VARS" "$AWS_VARS"
 
 for tree in google aws; do
-  echo ">> building the $tree tree root"
-  kustomize build "$ROOT/$tree" > "$BUILD/stack-$tree.yaml"
   for mode in keyless keyed; do
     # Each pass runs in a subshell so one cloud's env can never leak into
     # the other's render -- absence of the other cloud's vars is part of
@@ -262,19 +347,22 @@ for tree in google aws; do
       run_pass "$tree" "$mode"
     )
   done
+  echo ">> [$tree] entrypoint completeness + election independence"
+  check_entrypoint_complete "$tree" "$BUILD/$tree-keyless"
+  check_election_independent "$tree" "$BUILD/$tree-keyless"
 done
 
 echo ">> kubeconform"
 # Component CRD schemas are vendored (converted from upstream CRDs); refresh with:
 #   curl <crd-yaml> | yq -o=json '.spec.versions[0].schema.openAPIV3Schema'
 # CustomResourceDefinition is skipped: the standalone schema catalogs carry no
-# schema for it (the vendored gateway-crds are upstream-generated and arrive
-# verbatim — validating them here would only re-check kubebuilder's output).
+# schema for it (the vendored gateway CRDs are upstream-generated and arrive
+# verbatim -- validating them here would only re-check kubebuilder's output).
 kubeconform -strict -summary \
   -skip CustomResourceDefinition \
   -schema-location default \
   -schema-location "https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/{{ .ResourceKind }}{{ .KindSuffix }}.json" \
   -schema-location "$ROOT/tests/schemas/{{ .ResourceKind }}-{{ .Group }}-{{ .ResourceAPIVersion }}.json" \
-  "$BUILD"/*/component-*.yaml "$BUILD"/*/rendered-*.yaml "$BUILD"/stack-*.yaml
+  "$BUILD"/*/component-*.yaml "$BUILD"/*/rendered-*.yaml
 
 echo ">> validation clean"

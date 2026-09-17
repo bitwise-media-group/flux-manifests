@@ -1,0 +1,27 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+
+# Lists chart versions from the platform registry; the newest tag in the
+# semver range flows into the ResourceSet, so a flux-containers publish
+# rolls out on the next reconcile. Auth is ambient: the flux-operator
+# service account reads the platform registry via its cloud identity grant
+# (Workload Identity on GKE, Pod Identity on EKS).
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSetInputProvider
+metadata:
+  name: arc
+  namespace: arc-systems
+  annotations:
+    fluxcd.controlplane.io/reconcileEvery: 30m
+spec:
+  type: "${ARTIFACT_TAG_PROVIDER:=GARArtifactTag}"
+  url: oci://${PLATFORM_REGISTRY}/charts/gha-runner-scale-set-controller
+  filter:
+    # The controller and scale-set charts release in lockstep on one
+    # version stream (the mirror bumps both in one PR), so an
+    # application's scale set must range over the same constraint. The
+    # chart is pre-1.0: a ceiling and the floor the mirror carries.
+    # Constraint order matters: kustomize drops the quotes, so the default
+    # must not start with '>' or YAML reads it as a folded block scalar.
+    semver: "${ARC_SEMVER:=<1.0.0 >=0.14.0}"
+    limit: 1

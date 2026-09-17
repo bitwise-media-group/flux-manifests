@@ -1,18 +1,22 @@
 # Copyright 2026 BitWise Media Group Ltd
 # SPDX-License-Identifier: MIT
 
-# Publish — push the released stack as an OCI artifact to the platform
-# Artifact Registry, sign it keylessly, and move the `staging` channel tag.
+# Publish - push the released platform as OCI artifacts (one image per
+# component plus the entrypoint, components first) to every platform
+# registry, sign each digest keylessly, and move the `staging` channel tag.
 # Runs when release-please cuts a release (App-authored, so the event fires);
 # clusters syncing `staging` pick the new version up on their next reconcile,
 # and `stable` clusters wait for promote.yaml.
 #
-# The job's GitHub OIDC token mints both the GCP access token (via Workload
+# The job's GitHub OIDC token mints the GCP access token (via Workload
 # Identity Federation, impersonating the manifest-publisher service account
-# the artifact-store terraform created — its trust admits exactly refs/tags/v*
-# of this repo) and the Fulcio signing certificate. The FluxInstance verify
-# patch on every cluster pins this workflow's tag identity
-# (…/flux-manifests/.github/workflows/publish.yaml@refs/tags/v*).
+# the artifact-store terraform created - its trust admits exactly refs/tags/v*
+# of this repo), the AWS credentials (the artifact-store module's
+# manifest_publishers role for this repo, when the org has an AWS platform
+# registry) and the Fulcio signing certificate. The FluxInstance verify patch
+# and every platform-<component> OCIRepository on every cluster pin this
+# workflow's tag identity
+# (.../flux-manifests/.github/workflows/publish.yaml@refs/tags/v*).
 name: Publish Manifests
 
 on:
@@ -30,7 +34,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      # WIF token exchange + cosign keyless both ride the job's OIDC token
+      # WIF / AWS OIDC token exchange + cosign keyless all ride the job's OIDC token
       id-token: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -53,40 +57,51 @@ jobs:
           service_account: ${{ vars.GCP_MANIFEST_PUBLISHER_SA }}
           token_format: access_token
 
-      - name: push, sign, move staging
+      - name: login to Artifact Registry
         env:
           ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
           PLATFORM_REGISTRY: ${{ vars.PLATFORM_REGISTRY }}
+        run: |
+          # writes ~/.docker/config.json - the keychain flux push and cosign both read
+          docker login "${PLATFORM_REGISTRY%%/*}" --username oauth2accesstoken --password-stdin <<<"$ACCESS_TOKEN"
+
+      # The AWS platform registry, gated on the org variable: an org without
+      # an AWS artifact store publishes to Artifact Registry alone.
+      - name: authenticate to AWS
+        if: vars.AWS_MANIFEST_PUBLISHER_ROLE != ''
+        uses: aws-actions/configure-aws-credentials@254c19bd240aabef8777f48595e9d2d7b972184b # v6.2.1
+        with:
+          role-to-assume: ${{ vars.AWS_MANIFEST_PUBLISHER_ROLE }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: login to ECR
+        if: vars.AWS_MANIFEST_PUBLISHER_ROLE != ''
+        env:
+          AWS_PLATFORM_REGISTRY: ${{ vars.AWS_PLATFORM_REGISTRY }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+        run: |
+          aws ecr get-login-password --region "$AWS_REGION" \
+            | docker login "${AWS_PLATFORM_REGISTRY%%/*}" --username AWS --password-stdin
+
+      - name: push, sign, move staging
+        env:
+          PLATFORM_REGISTRY: ${{ vars.PLATFORM_REGISTRY }}
+          AWS_PLATFORM_REGISTRY: ${{ vars.AWS_MANIFEST_PUBLISHER_ROLE != '' && vars.AWS_PLATFORM_REGISTRY || '' }}
           TAG: ${{ github.event.release.tag_name }}
+          SOURCE: ${{ github.server_url }}/${{ github.repository }}
         run: |
           set -euo pipefail
-          host="${PLATFORM_REGISTRY%%/*}"
-          # writes ~/.docker/config.json — the keychain flux push and cosign both read
-          docker login "$host" --username oauth2accesstoken --password-stdin <<<"$ACCESS_TOKEN"
-
+          export REGISTRIES="${PLATFORM_REGISTRY}${AWS_PLATFORM_REGISTRY:+ ${AWS_PLATFORM_REGISTRY}}"
           version="${TAG#v}"
-          url="oci://${PLATFORM_REGISTRY}/flux-manifests"
 
-          digest="$(flux push artifact "$url:$version" \
-            --path . \
-            --source "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
-            --revision "$TAG@sha1:$GITHUB_SHA" \
-            --output json | jq -r .digest)"
-
-          # keyless: the Fulcio certificate subject is exactly this workflow at
-          # this tag — what every cluster's FluxInstance verify patch matches.
-          # cosign v3 stores the signature as a sigstore bundle via the OCI
-          # referrers API; flux >= 2.8 and kyverno's SigstoreBundle rules read
-          # that format. --use-signing-config=false only pins the v2 trust
-          # services (Fulcio + Rekor v1) — it does not change the format.
-          cosign sign --yes --use-signing-config=false \
-            "${PLATFORM_REGISTRY}/flux-manifests@$digest"
-
-          flux tag artifact "$url:$version" --tag staging
+          # every component, then the entrypoint; each digest signed before
+          # the next push (see scripts/publish.sh)
+          ./scripts/publish.sh push "$version" "$TAG@sha1:$GITHUB_SHA"
+          ./scripts/publish.sh tag "$version" staging
 
           {
-            echo "## Published flux-manifests $version"
+            echo "## Published platform $version"
             echo
-            echo "- digest: \`$digest\`"
+            echo "- registries: \`$REGISTRIES\`"
             echo "- channel: \`staging\`"
           } >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,11 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+#
+# The flux-web-auth secret sync (and its flux-web-secrets ServiceAccount)
+# and each cloud's edge-admission policy for the operator pod live in the
+# per-cloud overlays (aws/, google/), which include this core.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - namespace.yaml
+  - httproute.yaml

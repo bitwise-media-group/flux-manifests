@@ -1,0 +1,183 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+
+# dex is the platform's OIDC identity provider: the Flux status web UI,
+# kubectl and any application that declares a client sign humans in
+# through it. Upstream identity is arbitrary -- every connector dex config
+# carries comes from the terraform-published DEX_CONNECTORS cluster var (a
+# JSON array; see the connectors: block below), so a google connector's
+# group membership via the Directory API is just one instance among any
+# dex-supported connector type. When a google connector is used, its group
+# membership comes from the Directory API keylessly -- the dex KSA is
+# annotated with the terraform-created directory service account (common
+# root dex.tf, domain-wide delegation), so Workload Identity signs the
+# delegation assertion with no key file. The namespace/name/annotation
+# triple below is the contract with local.dex_workload_identities in
+# dex.tf -- change them together or the identity binding silently breaks.
+#
+# The relying parties are equally data-driven: DEX_CLIENTS carries every
+# static client as JSON ({id, name, public, redirectURIs} per entry; the
+# cluster module composes it from the platform's own clients and every
+# application's declared ones), so dex never learns an application's
+# name. A confidential client's secret is the terraform-minted
+# dex-client-<id> container, synced into the dex-env Secret by the
+# per-cloud resourceset-secrets.yaml ranging over the same list; a public
+# client (PKCE) has no secret at all.
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSet
+metadata:
+  name: dex
+  namespace: dex
+spec:
+  # Permute joins the chart and image providers into one input set (each
+  # exports exactly one, so the product stays one) and namespaces every
+  # provider's inputs under its normalized name: inputs.dex.*,
+  # inputs.dex_image.*.
+  inputStrategy:
+    name: Permute
+  inputsFrom:
+    - kind: ResourceSetInputProvider
+      name: dex
+    - kind: ResourceSetInputProvider
+      name: dex-image
+  resourcesTemplate: |
+    << $keyed := ne "${SIGNED_IDENTITY_KMS_KEY:=}" "" >>
+    << $clients := mustFromJson `${DEX_CLIENTS:=[]}` >>
+    << if ne "${COSIGN_PUBLIC_KEY:=}" "" >>
+    ---
+    # The signing key's public half (published base64-encoded by terraform,
+    # so it drops straight into data); source-controller verifies the chart
+    # artifact against it in keyed mode.
+    apiVersion: v1
+    kind: Secret
+    metadata:
+      name: cosign-pub
+      namespace: dex
+    type: Opaque
+    data:
+      cosign.pub: ${COSIGN_PUBLIC_KEY:=}
+    << end >>
+    ---
+    apiVersion: source.toolkit.fluxcd.io/v1
+    kind: OCIRepository
+    metadata:
+      name: dex
+      namespace: dex
+    spec:
+      interval: 1h
+      url: oci://${PLATFORM_REGISTRY}/charts/dex
+      provider: "${OCI_PROVIDER:=gcp}"
+      ref:
+        tag: << inputs.dex.tag >>
+      verify:
+        provider: cosign
+        << if $keyed >>
+        # Keyed: verified against the KMS signing key's public half.
+        secretRef:
+          name: cosign-pub
+        << else >>
+        matchOIDCIdentity:
+          # single-quoted: the values are regexes whose backslashes a
+          # double-quoted scalar would mangle when the rendered template
+          # text is parsed
+          - issuer: '${SIGNED_IDENTITY_ISSUER}'
+            subject: '${SIGNED_IDENTITY_CHARTS}'
+        << end >>
+    ---
+    apiVersion: helm.toolkit.fluxcd.io/v2
+    kind: HelmRelease
+    metadata:
+      name: dex
+      namespace: dex
+    spec:
+      interval: 30m
+      timeout: 5m
+      chartRef:
+        kind: OCIRepository
+        name: dex
+        namespace: dex
+      values:
+        image:
+          repository: ${CONTAINER_REGISTRY}/images/ghcr.io/dexidp/dex
+          # The mirror tracks this image independently of the chart; the
+          # tag comes from the dex-image provider, not the chart's
+          # appVersion default.
+          tag: << inputs.dex_image.tag >>
+        # The terraform Workload Identity binding expects dex/dex annotated
+        # with the directory SA -- pin the name so the contract holds. The
+        # var is GKE-only (terraform-google-gke-flux publishes it, the aws
+        # module does not), so it defaults empty and the annotation renders
+        # as a flow mapping -- ABSENT rather than empty -- on clusters
+        # without a google connector's directory identity.
+        serviceAccount:
+          name: dex
+          annotations: << if ne "${DEX_DIRECTORY_SA:=}" "" >>{"iam.gke.io/gcp-service-account":"${DEX_DIRECTORY_SA:=}"}<< else >>{}<< end >>
+        # Credentials from the synced dex-env Secret (the per-cloud
+        # overlay's resourceset-secrets.yaml). dex expands $VAR in its
+        # config; $-refs below are deliberately brace-less so flux
+        # postBuild substitution never touches them.
+        envFrom:
+          - secretRef:
+              name: dex-env
+        config:
+          # The public URL, baked into every token's iss claim; served by
+          # the platform Gateway via the httpRoute below.
+          issuer: https://dex.${PLATFORM_DOMAIN}
+          # CRD-backed storage in the release namespace: no database to
+          # run, and state survives pod restarts. dex creates its CRDs at
+          # startup via the chart's RBAC.
+          storage:
+            type: kubernetes
+            config:
+              inCluster: true
+          oauth2:
+            # The relying parties are first-party platform UIs; a consent
+            # screen between two internal pages is pure friction.
+            skipApprovalScreen: true
+          # Fully data-driven: DEX_CONNECTORS carries every connector's
+          # {id, type, name, config} as JSON, published by the cluster
+          # module's local.dex_connectors (sso.tf) -- config renders as a
+          # single-line JSON value (a YAML subset), preserving real types
+          # (lists, bools, numbers) coming through without hand-building
+          # indented YAML from a generic map. Backtick-quoted (a Go
+          # template raw string): JSON's own double quotes would otherwise
+          # terminate the substituted string early.
+          connectors:
+            << range $c := mustFromJson `${DEX_CONNECTORS:=[]}` >>
+            - type: << $c.type | quote >>
+              id: << $c.id | quote >>
+              name: << $c.name | quote >>
+              config: << toJson $c.config >>
+            << end >>
+          << if $clients >>
+          # One static client per DEX_CLIENTS entry. A confidential client
+          # reads its secret from the env the dex-env sync provides
+          # (DEX_CLIENT_<ID>, the terraform-generated dex-client-<id>
+          # container - both sides of every pair read the same Secrets
+          # Manager version). A public client (authorization-code + PKCE,
+          # e.g. kubectl or a CLI) carries no secret; with no registered
+          # redirectURIs dex admits loopback redirects on any port, which
+          # is exactly what a CLI's ephemeral local callback server needs.
+          staticClients:
+            << range $c := $clients >>
+            - id: << $c.id | quote >>
+              name: << $c.name | quote >>
+              << if $c.public >>
+              public: true
+              << else >>
+              secretEnv: DEX_CLIENT_<< $c.id | upper | replace "-" "_" >>
+              << end >>
+              << if $c.redirectURIs >>
+              redirectURIs: << toJson $c.redirectURIs >>
+              << end >>
+            << end >>
+          << end >>
+        httpRoute:
+          enabled: true
+          parentRefs:
+            - name: platform
+              namespace: gateway
+          hostnames:
+            - dex.${PLATFORM_DOMAIN}
+        nodeSelector:
+          role: system

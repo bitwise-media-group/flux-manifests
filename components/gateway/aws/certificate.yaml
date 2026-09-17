@@ -1,0 +1,23 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+
+# The platform's wildcard certificate: one Let's Encrypt certificate for
+# every host under the served domain, issued via DNS-01 (the only
+# challenge that can prove a wildcard) into the secret the Gateway's
+# listener terminates with. Hosts are therefore never enumerated here -
+# a platform component or an application adds a host by publishing an
+# HTTPRoute for it, and nothing else changes. Fully declarative: on
+# cluster recreation cert-manager re-issues into the same secret name and
+# the listener comes back serving valid TLS with no manual action.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: platform-wildcard
+  namespace: gateway
+spec:
+  secretName: platform-tls
+  dnsNames:
+    - "*.${PLATFORM_DOMAIN}"
+  issuerRef:
+    kind: ClusterIssuer
+    name: letsencrypt-prod

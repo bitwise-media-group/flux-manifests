@@ -1,4 +1,4 @@
 tests/schemas/**
 tests/*.env
 .build/**
-aws/components/gateway-crds/gateway.networking.k8s.io_*.yaml
+components/gateway/aws/crds/gateway.networking.k8s.io_*.yaml

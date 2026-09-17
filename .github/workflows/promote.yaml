@@ -1,11 +1,12 @@
 # Copyright 2026 BitWise Media Group Ltd
 # SPDX-License-Identifier: MIT
 
-# Promote — move the `stable` channel tag to an already-published version
-# after it has soaked on staging. Gated by the `production` environment
+# Promote - move the `stable` channel tag to an already-published version
+# after it has soaked on staging, on every component image and then the
+# entrypoint (scripts/publish.sh tag). Gated by the `production` environment
 # (required reviewers), whose exact OIDC subject the manifest-publisher
-# service account's WIF trust also admits. Retagging moves the channel only;
-# the artifact and its signature are untouched (verification follows the
+# identities' trusts also admit. Retagging moves the channel only; the
+# artifacts and their signatures are untouched (verification follows the
 # digest).
 name: Promote Manifests
 
@@ -30,6 +31,8 @@ jobs:
       contents: read
       id-token: write
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
       - name: install flux CLI
         uses: fluxcd/flux2/action@dd233c4fadef306a62b7893204f8e3817fecc2b2 # v2.9.5
 
@@ -41,20 +44,43 @@ jobs:
           service_account: ${{ vars.GCP_MANIFEST_PUBLISHER_SA }}
           token_format: access_token
 
-      - name: retag stable
+      - name: login to Artifact Registry
         env:
           ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
           PLATFORM_REGISTRY: ${{ vars.PLATFORM_REGISTRY }}
+        run: |
+          # writes ~/.docker/config.json - the keychain the flux CLI reads
+          docker login "${PLATFORM_REGISTRY%%/*}" --username oauth2accesstoken --password-stdin <<<"$ACCESS_TOKEN"
+
+      # The AWS platform registry, gated on the org variable: an org without
+      # an AWS artifact store publishes to Artifact Registry alone.
+      - name: authenticate to AWS
+        if: vars.AWS_MANIFEST_PUBLISHER_ROLE != ''
+        uses: aws-actions/configure-aws-credentials@254c19bd240aabef8777f48595e9d2d7b972184b # v6.2.1
+        with:
+          role-to-assume: ${{ vars.AWS_MANIFEST_PUBLISHER_ROLE }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: login to ECR
+        if: vars.AWS_MANIFEST_PUBLISHER_ROLE != ''
+        env:
+          AWS_PLATFORM_REGISTRY: ${{ vars.AWS_PLATFORM_REGISTRY }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+        run: |
+          aws ecr get-login-password --region "$AWS_REGION" \
+            | docker login "${AWS_PLATFORM_REGISTRY%%/*}" --username AWS --password-stdin
+
+      - name: retag stable
+        env:
+          PLATFORM_REGISTRY: ${{ vars.PLATFORM_REGISTRY }}
+          AWS_PLATFORM_REGISTRY: ${{ vars.AWS_MANIFEST_PUBLISHER_ROLE != '' && vars.AWS_PLATFORM_REGISTRY || '' }}
           VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
-          host="${PLATFORM_REGISTRY%%/*}"
-          # writes ~/.docker/config.json — the keychain the flux CLI reads
-          docker login "$host" --username oauth2accesstoken --password-stdin <<<"$ACCESS_TOKEN"
+          export REGISTRIES="${PLATFORM_REGISTRY}${AWS_PLATFORM_REGISTRY:+ ${AWS_PLATFORM_REGISTRY}}"
 
-          url="oci://${PLATFORM_REGISTRY}/flux-manifests"
-          # sanity: the version must exist (and be pullable) before the channel moves
-          flux pull artifact "$url:$VERSION" --output /tmp/artifact > /dev/null
-          flux tag artifact "$url:$VERSION" --tag stable
+          # the version must exist (and be pullable) on every image before
+          # the channel moves - the script pulls each one first
+          ./scripts/publish.sh tag "$VERSION" stable
 
-          echo "promoted flux-manifests $VERSION to stable" >> "$GITHUB_STEP_SUMMARY"
+          echo "promoted platform $VERSION to stable on: $REGISTRIES" >> "$GITHUB_STEP_SUMMARY"

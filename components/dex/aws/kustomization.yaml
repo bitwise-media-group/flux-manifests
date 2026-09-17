@@ -1,0 +1,14 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+
+# The aws overlay of the dex component: the cloud-neutral core (chart,
+# image tracking, dex config) plus this cloud's namespace and secret-sync
+# dialect (Secrets Store CSI SecretProviderClass + secrets-store-sync
+# SecretSync). One Kustomization carries all of it, so the namespace and
+# the credential Secret land in the same reconcile as the release.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../common
+  - namespace.yaml
+  - resourceset-secrets.yaml

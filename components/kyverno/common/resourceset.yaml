@@ -1,0 +1,116 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+
+# Kyverno policy engine: enforces the verify-platform-signature ClusterPolicy
+# (kyverno-policies component) so only images signed by the platform pipeline
+# are admitted. Registry credentials for signature fetches come from the
+# terraform-created Workload Identity grants on the admission and reports
+# controller ServiceAccounts.
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSet
+metadata:
+  name: kyverno
+  namespace: kyverno
+spec:
+  inputsFrom:
+    - kind: ResourceSetInputProvider
+      name: kyverno
+  # The OCIRepository rides resourcesTemplate rather than resources below
+  # (flux-operator renders both and merges them) because the verify block's
+  # SHAPE follows the signing mode: keyed clusters (SIGNED_IDENTITY_KMS_KEY
+  # set) verify against the cosign-pub public-key Secret rendered here from
+  # the COSIGN_PUBLIC_KEY cluster var, keyless clusters against the Fulcio
+  # identities. Conditional membership of a map needs a text template.
+  resourcesTemplate: |
+    << $keyed := ne "${SIGNED_IDENTITY_KMS_KEY:=}" "" >>
+    << if ne "${COSIGN_PUBLIC_KEY:=}" "" >>
+    ---
+    # The signing key's public half (published base64-encoded by terraform,
+    # so it drops straight into data); source-controller verifies the chart
+    # artifact against it in keyed mode.
+    apiVersion: v1
+    kind: Secret
+    metadata:
+      name: cosign-pub
+      namespace: kyverno
+    type: Opaque
+    data:
+      cosign.pub: ${COSIGN_PUBLIC_KEY:=}
+    << end >>
+    ---
+    apiVersion: source.toolkit.fluxcd.io/v1
+    kind: OCIRepository
+    metadata:
+      name: kyverno
+      namespace: kyverno
+    spec:
+      interval: 1h
+      url: oci://${PLATFORM_REGISTRY}/charts/kyverno
+      # Registry auth (gcp = Artifact Registry via Workload Identity).
+      provider: "${OCI_PROVIDER:=gcp}"
+      ref:
+        tag: << inputs.tag >>
+      verify:
+        provider: cosign
+        << if $keyed >>
+        # Keyed: verified against the KMS signing key's public half.
+        secretRef:
+          name: cosign-pub
+        << else >>
+        # Keyless: the chart must carry a Fulcio certificate from the
+        # flux-containers publish workflow. Single-quoted: the values are
+        # regexes whose backslashes a double-quoted scalar would mangle.
+        matchOIDCIdentity:
+          - issuer: '${SIGNED_IDENTITY_ISSUER}'
+            subject: '${SIGNED_IDENTITY_CHARTS}'
+        << end >>
+  resources:
+    - apiVersion: helm.toolkit.fluxcd.io/v2
+      kind: HelmRelease
+      metadata:
+        name: kyverno
+        namespace: kyverno
+      spec:
+        interval: 30m
+        timeout: 10m
+        chartRef:
+          kind: OCIRepository
+          name: kyverno
+          namespace: kyverno
+        install:
+          crds: CreateReplace
+        upgrade:
+          crds: CreateReplace
+        values:
+          global:
+            image:
+              # Mirrored images; the chart's per-controller repository values
+              # resolve beneath this (kyverno/kyverno, kyverno/kyvernopre, ...).
+              registry: ${CONTAINER_REGISTRY}/images/reg.kyverno.io
+            # Platform controllers run on the always-on system pool.
+            nodeSelector:
+              role: system
+          # Admission is in every pod's critical path (failurePolicy Fail): run it HA.
+          admissionController:
+            replicas: 3
+          # Hook jobs are disabled to keep the image set identical to the
+          # mirror's discovery render (flux-containers charts/kyverno). Note:
+          # webhooksCleanup is a pre-delete hook; without it, webhook
+          # configurations linger if the release is ever uninstalled and must
+          # be removed by hand.
+          webhooksCleanup:
+            enabled: false
+          policyReportsCleanup:
+            enabled: false
+          # PolicyExceptions on, homed in the kyverno namespace: an
+          # application whose images are signed by a different identity
+          # than the platform pipeline ships a PolicyException there (scoped
+          # to its own namespaces) beside its own verifying ClusterPolicy,
+          # so verify-platform-signature stays a single-identity rule and
+          # every image is still verified by exactly one policy. One
+          # namespace rather than any: an exception is a policy decision,
+          # not something a workload namespace may grant itself.
+          features:
+            policyExceptions:
+              enabled: true
+              namespace: kyverno

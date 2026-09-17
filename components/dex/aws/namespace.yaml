@@ -1,0 +1,13 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+#
+# The namespace rides the overlay beside the secret sync so both exist in
+# the same reconcile as the release. The gateway-access label admits this
+# namespace's HTTPRoute (the dex issuer) to the platform Gateway's
+# listener, which selects route namespaces by it.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: dex
+  labels:
+    platform.bitwisemedia.uk/gateway-access: "true"

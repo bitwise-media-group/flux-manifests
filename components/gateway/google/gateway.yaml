@@ -1,0 +1,44 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+
+# The platform's shared internet-facing Gateway: a Google-managed global
+# external Application Load Balancer (no ingress controller pods),
+# attaching the terraform-reserved global static IP by name
+# (NamedAddress).
+#
+# Cluster destroy/recreate serves the same address again, so DNS barely
+# blips even before external-dns reconverges. One wildcard listener for
+# every host under the served domain, terminating with the
+# platform-wildcard certificate: routes attach by hostname, and the
+# listener admits them from any namespace carrying the gateway-access
+# label - which is how a platform component or an application gets a
+# host without the Gateway learning its name. A route's namespace opts in
+# by labelling itself; nothing here enumerates consumers.
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: platform
+  namespace: gateway
+spec:
+  gatewayClassName: gke-l7-global-external-managed
+  addresses:
+    # NamedAddress is the GKE mechanism for a pre-reserved global
+    # static IP.
+    - type: NamedAddress
+      value: ${GATEWAY_ADDRESS_NAME}
+  listeners:
+    - name: https
+      protocol: HTTPS
+      port: 443
+      hostname: "*.${PLATFORM_DOMAIN}"
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: platform-tls
+      allowedRoutes:
+        namespaces:
+          from: Selector
+          selector:
+            matchLabels:
+              platform.bitwisemedia.uk/gateway-access: "true"

@@ -1,0 +1,12 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+#
+# The google entrypoint: terraform points each cluster's FluxInstance
+# sync.path at its cloud's tree (flux.sync.path, published as
+# PLATFORM_TREE). The tree holds exactly one object, the platform
+# ResourceSet, which elects and emits every component's source and
+# Kustomization from the PLATFORM_COMPONENTS election.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - resourceset.yaml
