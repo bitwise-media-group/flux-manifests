@@ -2,15 +2,19 @@
 # SPDX-License-Identifier: MIT
 #
 # flux-manifests consumes the shared toolchain (bitwise-media-group/toolchain)
-# as the .mise/ submodule: pinned tools and the universal lint tasks come from
-# there, and the Makefile is a thin forwarder (.mise/mise.mk). The validation
-# task surface lives in tasks.toml.
+# as the .mise/ submodule: mise loads its config.toml natively as
+# .mise/config.toml (pinned tools -- kubescape, helm, shellcheck, actionlint,
+# zizmor, prettier, markdownlint, addlicense, ... -- and the [vars] knob
+# defaults), and this file selects the task files and pins the
+# validation-only tools below. The repo has nothing to compile, so it includes
+# only common/ -- no archetype -- and the Makefile is a thin forwarder
+# (.mise/common/include.mk). The validation task surface lives in tasks.toml.
 
 [task_config]
-# markdown-lib archetype (prose fmt/lint + license + actionlint + shell lint)
-# plus the repo-local validation tasks; tasks.toml is included AFTER the
-# archetype so its same-named aggregates (ci, pr) win.
-includes = [".mise/tasks/markdown-lib.toml", "tasks.toml"]
+# common (prose fmt/lint + license, container, shell and workflow lint) plus
+# the repo-local validation tasks; tasks.toml is included AFTER common so its
+# same-named tasks (lint-kustomize, ci, pr) win.
+includes = [".mise/common/tasks.toml", "tasks.toml"]
 
 [tools]
 # Validation tools the toolchain does not pin (candidates for upstreaming;

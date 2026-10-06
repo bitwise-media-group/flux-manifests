@@ -1,9 +1,11 @@
 # Copyright 2026 BitWise Media Group Ltd
 # SPDX-License-Identifier: MIT
 #
-# Repo-local tasks: the stack validation harness. lint/fmt stay the
-# archetype's (license headers, prose, actionlint, shell, kustomize/helm
-# config scans).
+# Repo-local tasks: the stack validation harness. This file is included
+# after common, so its same-named tasks replace common's whole-task. lint and
+# fmt stay common's (license headers, prose, actionlint + zizmor, shell,
+# kustomize/helm config scans); common's lint picks up the lint-kustomize
+# replacement below by name.
 
 [test]
 description = "render + schema-validate the stack (kustomize build, substitution, resourceset render, kubeconform)"
@@ -18,6 +20,8 @@ run = "./scripts/validate.sh"
 # except the named CR-only set.
 [lint-kustomize]
 hide = true
+dir = "{{config_root}}"
+env = { KUBESCAPE_SEVERITY = "{{vars.kubescape_severity}}" }
 run = """
 set -eu
 export KUBECONFIG=/nonexistent
@@ -40,6 +44,7 @@ done
 description = "the checks the reusable CI workflow runs"
 run = [{ task = "lint" }, { task = "test" }]
 
+# common's pr is fmt + lint with no commit step; this one adds the harness.
 [pr]
 description = "full local gate before a pull request"
-run = [{ task = "fmt" }, { task = "lint" }, { task = "test" }, { task = "commit" }]
+run = [{ task = "fmt" }, { task = "lint" }, { task = "test" }]
