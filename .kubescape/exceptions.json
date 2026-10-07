@@ -2,7 +2,7 @@
   {
     "name": "namespace-admission-posture",
     "policyType": "postureExceptionPolicy",
-    "actions": ["alertOnly"],
+    "actions": ["disable"],
     "attributes": {
       "reason": "C-0193/C-0202 assert cluster-wide admission posture (privileged / HostProcess containers) against bare Namespace manifests. The stack's own kyverno-policies component IS that admission control (verify-platform-signature; PSS restricted labels arrive with each application), and a Namespace object cannot itself satisfy the control."
     },
