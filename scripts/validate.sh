@@ -282,7 +282,10 @@ run_pass() { # run_pass <tree> <mode: keyless|keyed>
 # Kustomization that something emits -- the entrypoint itself, or a
 # component ResourceSet (gateway-api-crds rides the gateway component's
 # resourceset-crds.yaml). A dangling dependsOn freezes the dependant
-# forever, which is exactly what this guard exists to catch.
+# forever, which is exactly what this guard exists to catch. Every one of
+# those Kustomizations must also find its path in the image it reads:
+# platform-<name> carries components/<name>, flux-system carries
+# platform/. A path that is not in the image fails only on a cluster.
 check_entrypoint_complete() { # check_entrypoint_complete <tree> <render-dir>
   local tree="$1" out="$2" rendered="$2/rendered-platform-resourceset.yaml" shipped emitted name dep bad=0 known
   shipped="$(shipped_components "$tree")"
@@ -300,6 +303,16 @@ check_entrypoint_complete() { # check_entrypoint_complete <tree> <render-dir>
     [[ -n "$dep" ]] || continue
     in_set "$dep" "$known" || { echo "entrypoint completeness: a dependsOn names $dep but nothing emits a Kustomization by that name on $tree" >&2; bad=1; }
   done < <(yq_values 'select(.kind == "Kustomization") | .spec.dependsOn[]?.name' "$rendered")
+  local ks source path image
+  while IFS=' ' read -r ks source path; do
+    [[ -n "$ks" ]] || continue
+    case "$source" in
+      platform-*) image="components/${source#platform-}" ;;
+      flux-system) image="platform" ;;
+      *) echo "entrypoint completeness: Kustomization $ks reads $source, which is neither platform-<name> nor flux-system" >&2; bad=1; continue ;;
+    esac
+    [[ -f "$ROOT/$image/${path#./}/kustomization.yaml" ]] || { echo "entrypoint completeness: Kustomization $ks reads $path from $source, but $image/${path#./} has no kustomization.yaml" >&2; bad=1; }
+  done < <(yq e 'select(.kind == "Kustomization" and .apiVersion == "kustomize.toolkit.fluxcd.io/v1") | [.metadata.name, .spec.sourceRef.name, .spec.path] | join(" ")' "$out"/rendered-*.yaml | grep -v '^---$' | sort -u)
   [[ "$bad" -eq 0 ]] || exit 1
 }
 
