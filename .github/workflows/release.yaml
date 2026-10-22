@@ -5,8 +5,12 @@
 # release-please watches main and keeps a release PR current from the
 # Conventional Commit history; when that PR merges the workflow cuts the GitHub
 # release + vX.Y.Z tag. There is no .goreleaser.yaml here — the release event
-# triggers publish.yaml, which pushes the signed OCI artifact to the platform
-# registry and moves the staging channel tag.
+# triggers publish.yaml, which pushes the signed OCI artifacts to the platform
+# registry and moves the staging channel tag. The zensical.toml at the root
+# takes the reusable workflow's docs job: each release rebuilds the
+# documentation site and deploys it to GitHub Pages
+# (oss.bitwisemedia.uk/flux-manifests/), so the published docs describe the
+# released platform.
 #
 # app-client-id/app-private-key author the release-please PR as the "FF Merge"
 # App instead of the GITHUB_TOKEN. A GITHUB_TOKEN-authored push fires no
@@ -29,10 +33,10 @@ permissions: {}
 jobs:
     release:
         uses: bitwise-media-group/github-workflows/.github/workflows/release.yaml@8b34c6fe87a61fc2f800876e9268bc1da8635e88 # v8.0.0
-        # ceiling for the reusable workflow's release-please job. GitHub resolves
-        # a reusable workflow's permissions as the union of every job and ignores
-        # `if:`, so the caller grants the goreleaser/docs jobs' ceilings even
-        # though both are skipped here (no .goreleaser.yaml, no zensical.toml).
+        # ceiling for the reusable workflow's release-please and docs jobs.
+        # GitHub resolves a reusable workflow's permissions as the union of
+        # every job and ignores `if:`, so the caller grants the goreleaser
+        # job's ceilings even though it is skipped here (no .goreleaser.yaml).
         permissions:
             # create the release/tag and upload assets
             contents: write
@@ -40,7 +44,8 @@ jobs:
             issues: write
             # release-please opens the release pull request
             pull-requests: write
-            # cosign keyless signing (goreleaser; skipped in this repo)
+            # cosign keyless signing (goreleaser; skipped in this repo) and the
+            # OIDC token the docs job's deploy-pages exchanges for the deploy
             id-token: write
             # push container images to ghcr (goreleaser; skipped in this repo)
             packages: write
@@ -48,7 +53,7 @@ jobs:
             attestations: write
             # artifact storage record for the attestation (skipped in this repo)
             artifact-metadata: write
-            # granted for parity with the reusable workflow's docs job ceiling
+            # publish the documentation site (the docs job)
             pages: write
         with:
             # author the release PR as the FF Merge App so it can auto-merge (a

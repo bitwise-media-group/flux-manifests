@@ -2,10 +2,26 @@
 # SPDX-License-Identifier: MIT
 #
 # Repo-local tasks: the stack validation harness. This file is included
-# after common, so its same-named tasks replace common's whole-task. lint and
-# fmt stay common's (license headers, prose, actionlint + zizmor, shell,
-# kustomize/helm config scans); common's lint picks up the lint-kustomize
-# replacement below by name.
+# after common and the python archetype, so its same-named tasks replace
+# theirs whole-task. fmt and lint are restated as common's (license headers,
+# prose, actionlint + zizmor, shell, kustomize/helm config scans) because the
+# python archetype — included only for the docs site — would otherwise swap in
+# its ruff-first variants over a repo with no Python in it; common's lint picks
+# up the lint-kustomize replacement below by name.
+
+[fmt]
+description = "format prose, inject license headers"
+run = [{ task = "fmt-prose" }, { task = "license" }]
+
+[lint]
+description = "prose lint (prettier + markdownlint) + license, container, shell and workflow checks"
+run = [
+  { task = "license-check" },
+  { task = "lint-containers" },
+  { task = "lint-shell" },
+  { task = "lint-workflows" },
+  { task = "lint-prose" },
+]
 
 [test]
 description = "render + schema-validate the stack (kustomize build, substitution, resourceset render, kubeconform)"
@@ -40,11 +56,16 @@ for d in components/*/aws/ components/*/google/; do
 done
 """
 
+# build is the python archetype's: `zensical build` of the documentation site
+# (pyproject.toml has no [build-system], so nothing else). The reusable CI
+# workflow runs it when the task exists, so a broken page — or an embedded
+# manifest that moved — fails the PR.
 [ci]
 description = "the checks the reusable CI workflow runs"
-run = [{ task = "lint" }, { task = "test" }]
+run = [{ task = "lint" }, { task = "test" }, { task = "build" }]
 
-# common's pr is fmt + lint with no commit step; this one adds the harness.
+# common's pr is fmt + lint with no commit step; this one adds the harness
+# and the docs build.
 [pr]
 description = "full local gate before a pull request"
-run = [{ task = "fmt" }, { task = "lint" }, { task = "test" }]
+run = [{ task = "fmt" }, { task = "lint" }, { task = "test" }, { task = "build" }]

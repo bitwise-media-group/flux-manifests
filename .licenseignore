@@ -2,3 +2,5 @@ tests/schemas/**
 tests/*.env
 .build/**
 components/gateway/aws/crds/gateway.networking.k8s.io_*.yaml
+site/**
+.cache/**

@@ -1,0 +1,396 @@
+<!--
+ Copyright 2026 BitWise Media Group Ltd
+ SPDX-License-Identifier: MIT
+-->
+
+{#- overrides/home.html — custom landing for the flux-manifests docs, on the flux-containers landing's layout (hero,
+terminal showcase, marquee, connected feature grid, cards, steps) in the parent BitWise Media Group palette via the
+scheme-scoped --bw-* tokens in docs/stylesheets/extra.css. Injected full-bleed between the header and the page body via
+the `tabs` block; the article `content` block is emptied, index.md sets `hide: [navigation, toc]`, and extra.css drops
+the empty .md-content on this page.
+
+The component marquee, count and cards are read from the "Components" nav section (every entry but the catalogue), each
+card's blurb from that page's `description` front matter — so adding a component to zensical.toml is all the landing
+needs. -#}
+{% extends "main.html" %}
+{% block tabs %}
+{{ super() }}
+{%- set fm_section = nav.items | selectattr("title", "equalto", "Components") | first -%}
+{%- set fm_components = fm_section.children | rejectattr("title", "equalto", "Catalogue") | list %}
+<div class="fm">
+    <!-- HERO -->
+    <header class="fm-hero">
+        <div class="fm-hero__grid"></div>
+        <div class="fm-hero__glow"></div>
+        <img class="fm-hero__mark" src="{{ 'assets/logo-mark.svg' | url }}" alt="" aria-hidden="true" />
+        <div class="fm-hero__inner">
+            <div class="fm-kicker"><span class="fm-dot"></span>// The GitOps platform every cluster syncs</div>
+            <h1 class="fm-title">One entrypoint.<br /><em>Every component signed.</em></h1>
+            <p class="fm-lede">
+                The platform every BitWise Media Group cluster runs — policy, certificates, DNS, the Gateway, identity
+                and Flux itself — published as a small entrypoint plus one cosign-signed OCI image per component, and
+                followed by each cluster's FluxInstance on a release channel. Nothing is edited per cluster.
+            </p>
+            <div class="fm-term">
+                <div class="fm-term__bar">
+                    <span class="fm-dots"><i></i><i></i><i></i></span><span>zsh — flux-manifests</span>
+                </div>
+                <div class="fm-copy">
+                    <span class="fm-p">$</span>
+                    <code>make test</code>
+                    <div class="md-code__nav">
+                        <button class="md-code__button" type="button" data-md-type="copy" title="Copy to clipboard"
+                            aria-label="Copy to clipboard"></button>
+                    </div>
+                </div>
+                <div class="fm-copy">
+                    <span class="fm-p">$</span>
+                    <code>make lint</code>
+                    <div class="md-code__nav">
+                        <button class="md-code__button" type="button" data-md-type="copy" title="Copy to clipboard"
+                            aria-label="Copy to clipboard"></button>
+                    </div>
+                </div>
+                <div class="fm-copy">
+                    <span class="fm-p">$</span>
+                    <code>make serve</code>
+                    <div class="md-code__nav">
+                        <button class="md-code__button" type="button" data-md-type="copy" title="Copy to clipboard"
+                            aria-label="Copy to clipboard"></button>
+                    </div>
+                </div>
+            </div>
+            <div class="fm-cta">
+                <a class="fm-btn fm-btn--primary" href="{{ 'getting-started/' | url }}">
+                    Get started
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+                        stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M5 12h14" />
+                        <path d="m12 5 7 7-7 7" />
+                    </svg>
+                </a>
+                <a class="fm-btn fm-btn--secondary" href="{{ 'concepts/architecture/' | url }}">How it works</a>
+                <a class="fm-btn fm-btn--ghost" href="{{ config.repo_url }}">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"
+                        stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path
+                            d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 4 5 4 5 4c-.3 1.15-.3 2.35 0 3.5A5.4 5.4 0 0 0 4 11c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4" />
+                        <path d="M9 18c-4.51 2-5-2-7-2" />
+                    </svg>
+                    Browse the code
+                </a>
+            </div>
+        </div>
+    </header>
+
+    <!-- TERMINAL SHOWCASE -->
+    <section class="fm-shot">
+        <div class="fm-shot__frame">
+            <div class="fm-shot__bar">
+                <span class="fm-dots"><i></i><i></i><i></i></span>
+                <span class="fm-title-sm">flux-manifests · make test</span>
+                <span class="fm-live">● ci</span>
+            </div>
+            <div class="fm-panes">
+                <div class="fm-pane">
+                    <div class="fm-pane__head"><b>1</b><span>platform/aws/resourceset.yaml</span></div>
+                    <div class="fm-pane__body fm-toml">
+                        <div><span class="s">$components := list</span></div>
+                        <div>&nbsp;&nbsp;(<span class="k">dict</span> <span class="v">"name" "kyverno"</span> <span class="v">"timeout" "10m"</span>)</div>
+                        <div>&nbsp;&nbsp;(<span class="k">dict</span> <span class="v">"name" "gateway"</span></div>
+                        <div>&nbsp;&nbsp;&nbsp;&nbsp;<span class="k">"dependsOn"</span> (<span class="v">list "cert-manager-issuers"</span>))</div>
+                        <div>&nbsp;&nbsp;(<span class="k">dict</span> <span class="v">"name" "dex"</span></div>
+                        <div>&nbsp;&nbsp;&nbsp;&nbsp;<span class="k">"when"</span> (<span class="v">list "dex"</span>)</div>
+                        <div>&nbsp;&nbsp;&nbsp;&nbsp;<span class="k">"ref"</span> <span class="v">"${DEX_MANIFESTS_REF:=}"</span>)</div>
+                        <div><span class="s">range $c := $components</span></div>
+                        <div>&nbsp;&nbsp;<span class="k">OCIRepository</span> platform-<span class="v">$c.name</span></div>
+                        <div>&nbsp;&nbsp;<span class="k">Kustomization</span> <span class="v">$c.name</span> → ./aws</div>
+                        <div class="fm-pane__sep"><span class="c"># the list IS the graph</span></div>
+                    </div>
+                </div>
+                <div class="fm-pane">
+                    <div class="fm-pane__head"><b>2</b><span>make test</span></div>
+                    <div class="fm-pane__body">
+                        <div class="fm-dim">$ make test <span class="fm-blink"></span></div>
+                        <div class="fm-run"><span class="t">guards</span><span class="d">null self-test · common neutrality · dead defaults</span><span class="ok">✓</span></div>
+                        <div class="fm-run"><span class="t">build</span><span class="d">{google,aws} × {keyless,keyed}</span><span class="ok">✓</span></div>
+                        <div class="fm-run"><span class="t"></span><span class="d">substituted like kustomize-controller</span><span class="ok">✓</span></div>
+                        <div class="fm-run"><span class="t">render</span><span class="d">every ResourceSet with fixtures</span><span class="ok">✓</span></div>
+                        <div class="fm-run"><span class="t">graph</span><span class="d">entrypoint complete · core election-free</span><span class="ok">✓</span></div>
+                        <div class="fm-run"><span class="t">schema</span><span class="d">kubeconform · flux + vendored CRDs</span><span class="ok">✓</span></div>
+                        <div class="fm-pane__sep fm-ok">→ merge, and publish-edge.yaml signs it keylessly</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <p class="fm-shot__cap">
+            The <b>entrypoint</b> elects and orders the components; the <b>harness</b> renders every tree exactly as a
+            cluster would and proves the graph complete before anything ships.
+        </p>
+    </section>
+
+    <!-- MARQUEE -->
+    {#- The platform components. Rendered twice so the translateX(-50%) scroll loops seamlessly; aria-hidden because it
+    is decorative and would otherwise be announced twice. -#}
+    <div class="fm-marquee" aria-hidden="true">
+        <div class="fm-marquee__track">
+            {% for i in [1, 2] %}{% for c in fm_components %}<span>{{ c.title }}</span>{% endfor %}{% endfor %}
+        </div>
+    </div>
+
+    <!-- STATS -->
+    <section class="fm-stats-wrap">
+        <div class="fm-stats">
+            <div class="fm-stat"><b>{{ fm_components | length }}</b><small>platform components</small></div>
+            <div class="fm-stat"><b>2</b><small>clouds — aws &amp; google</small></div>
+            <div class="fm-stat"><b class="fm-ink">3</b><small>channels — edge, staging, stable</small></div>
+            <div class="fm-stat"><b class="fm-ink">0</b><small>per-cluster edits</small></div>
+        </div>
+    </section>
+
+    <!-- WHAT THE PLATFORM IS -->
+    <section class="fm-section">
+        <h2 class="fm-eyebrow">// HOW THE PLATFORM IS BUILT</h2>
+        <p class="fm-lead">A generic platform: it names no application, and every cluster differs only by its variables.</p>
+        <div class="fm-conn fm-grid-3">
+            <div class="fm-feat">
+                <div class="fm-glyph" style="background: var(--bw-orange)">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                        stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="m7.5 4.27 9 5.15" />
+                        <path
+                            d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z" />
+                        <path d="m3.3 7 8.7 5 8.7-5" />
+                        <path d="M12 22V12" />
+                    </svg>
+                </div>
+                <h3>One image per component</h3>
+                <p>
+                    Every <code>components/&lt;name&gt;</code> ships as its own signed OCI image, and the entrypoint pulls each one on the cluster's channel — or on a tag the cluster pins for that component alone.
+                </p>
+            </div>
+            <div class="fm-feat">
+                <div class="fm-glyph" style="background: var(--bw-orange-2)">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                        stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+                        <path d="M3 3v5h5" />
+                        <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16" />
+                        <path d="M16 16h5v5" />
+                    </svg>
+                </div>
+                <h3>The entrypoint is the graph</h3>
+                <p>
+                    Ordering, timeouts, election gates and release pins live in one <code>ResourceSet</code> per cloud. <code>make test</code> proves every overlay is emitted and every <code>dependsOn</code> resolves.
+                </p>
+            </div>
+            <div class="fm-feat">
+                <div class="fm-glyph" style="background: var(--bw-amber)">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                        stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M4 9h16" />
+                        <path d="M4 15h16" />
+                        <path d="M10 3 8 21" />
+                        <path d="m16 3-2 18" />
+                    </svg>
+                </div>
+                <h3>Common tier, cloud overlays</h3>
+                <p>
+                    Each component's cloud-neutral <code>common/</code> tier is shared verbatim; <code>aws/</code> and <code>google/</code> carry only the dialect that differs. Guards keep the common tier neutral.
+                </p>
+            </div>
+            <div class="fm-feat">
+                <div class="fm-glyph" style="background: var(--bw-orange)">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                        stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <rect width="18" height="11" x="3" y="11" rx="2" ry="2" />
+                        <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                    </svg>
+                </div>
+                <h3>Verified end to end</h3>
+                <p>
+                    Entrypoint, component images and charts are all cosign-verified by Flux, and Kyverno admits only pod images the platform pipeline signed — keyless or KMS-keyed.
+                </p>
+            </div>
+            <div class="fm-feat">
+                <div class="fm-glyph" style="background: var(--bw-orange-2)">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                        stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <circle cx="12" cy="8" r="6" />
+                        <path d="M15.477 12.89 17 22l-5-3-5 3 1.523-9.11" />
+                    </svg>
+                </div>
+                <h3>Charts follow the mirror</h3>
+                <p>
+                    A tag provider lists the mirrored chart versions in range, so a flux-containers publish rolls out on the next reconcile — bounded by per-cluster <code>*_SEMVER</code> overrides.
+                </p>
+            </div>
+            <div class="fm-feat">
+                <div class="fm-glyph" style="background: var(--bw-green)">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                        stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path
+                            d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" />
+                        <path d="m9 12 2 2 4-4" />
+                    </svg>
+                </div>
+                <h3>Rendered like the cluster does</h3>
+                <p>
+                    <code>make test</code> substitutes exactly as kustomize-controller does, renders every ResourceSet and kubeconforms the result — four times, per cloud and signing mode.
+                </p>
+            </div>
+        </div>
+    </section>
+
+    <!-- COMPONENTS -->
+    <section class="fm-section">
+        <h2 class="fm-eyebrow">// COMPONENTS</h2>
+        <p class="fm-lead">Each page covers what the component deploys, its clouds, dependencies and cluster variables.</p>
+        <div class="fm-card-grid">
+            {% for c in fm_components %}
+            <a class="fm-card" href="{{ c.url | url }}">
+                <span class="fm-card__name">{{ c.title }}</span>
+                <p>{{ c.meta.description if c.meta and c.meta.description else "" }}</p>
+                <code>components/{{ c.title }}</code>
+            </a>
+            {% endfor %}
+            <a class="fm-card fm-card--common" href="{{ 'components/' | url }}">
+                <span class="fm-card__name">catalogue</span>
+                <p>Every component side by side: tier, clouds, dependencies, namespace and chart.</p>
+                <code>components/</code>
+            </a>
+        </div>
+    </section>
+
+    <!-- THE TASKS -->
+    <section class="fm-section">
+        <h2 class="fm-eyebrow">// THIN TASKS OVER THE TOOLCHAIN</h2>
+        <p class="fm-lead--sm">Every verb is a mise task; the Makefile only forwards — <code>make &lt;task&gt;</code> ==
+            <code>mise run &lt;task&gt;</code>.</p>
+        <div class="fm-cmdcard">
+            <div class="fm-cmdcard__bar">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                    stroke-linejoin="round" aria-hidden="true">
+                    <polyline points="4 17 10 11 4 5" />
+                    <line x1="12" x2="20" y1="19" y2="19" />
+                </svg>
+                <span>make help</span>
+            </div>
+            <div class="fm-cmdcard__list">
+                <div class="fm-cmdrow">
+                    <code><span class="p">$</span> make test</code><span class="cmt"># render + guard + kubeconform every tree</span>
+                </div>
+                <div class="fm-cmdrow">
+                    <code><span class="p">$</span> make lint</code><span class="cmt"># license, prose, workflows, shell, kubescape</span>
+                </div>
+                <div class="fm-cmdrow">
+                    <code><span class="p">$</span> make fmt</code><span class="cmt"># format prose, inject license headers</span>
+                </div>
+                <div class="fm-cmdrow">
+                    <code><span class="p">$</span> make pr</code><span class="cmt"># fmt + lint + test + docs build</span>
+                </div>
+                <div class="fm-cmdrow">
+                    <code><span class="p">$</span> make serve</code><span class="cmt"># preview this site on localhost:8004</span>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- THREE STEPS -->
+    <section class="fm-section fm-section--last">
+        <h2 class="fm-eyebrow">// FROM MERGE TO PRODUCTION</h2>
+        <div class="fm-conn fm-steps">
+            <div class="fm-step">
+                <div class="fm-step__body">
+                    <div class="fm-step__num">01</div>
+                    <h3>Merge</h3>
+                    <p>Every merge to main is published as <code>edge</code>: dev clusters validate trunk continuously.</p>
+                    <a class="fm-step__alt" href="{{ 'concepts/releases/' | url }}">Releases &amp; channels
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+                            stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M5 12h14" />
+                            <path d="m12 5 7 7-7 7" />
+                        </svg>
+                    </a>
+                </div>
+                <div class="fm-cmd">
+                    <span class="fm-p">$</span>
+                    <code>make test</code>
+                    <div class="md-code__nav">
+                        <button class="md-code__button" type="button" data-md-type="copy" title="Copy to clipboard"
+                            aria-label="Copy to clipboard"></button>
+                    </div>
+                </div>
+            </div>
+            <div class="fm-step">
+                <div class="fm-step__body">
+                    <div class="fm-step__num">02</div>
+                    <h3>Release</h3>
+                    <p>release-please cuts <code>vX.Y.Z</code>; the publish workflow pushes and signs every image and moves <code>staging</code>.</p>
+                    <a class="fm-step__alt" href="{{ 'concepts/automation/' | url }}">CI &amp; automation
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+                            stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M5 12h14" />
+                            <path d="m12 5 7 7-7 7" />
+                        </svg>
+                    </a>
+                </div>
+                <div class="fm-cmd">
+                    <span class="fm-p">$</span>
+                    <code>scripts/publish.sh push X.Y.Z vX.Y.Z@sha1:…</code>
+                    <div class="md-code__nav">
+                        <button class="md-code__button" type="button" data-md-type="copy" title="Copy to clipboard"
+                            aria-label="Copy to clipboard"></button>
+                    </div>
+                </div>
+            </div>
+            <div class="fm-step">
+                <div class="fm-step__body">
+                    <div class="fm-step__num">03</div>
+                    <h3>Promote</h3>
+                    <p>After soak, the gated promote workflow moves <code>stable</code> onto the same signed digests.</p>
+                    <a class="fm-step__alt" href="{{ 'reference/operations/' | url }}">Operations
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+                            stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M5 12h14" />
+                            <path d="m12 5 7 7-7 7" />
+                        </svg>
+                    </a>
+                </div>
+                <div class="fm-cmd">
+                    <span class="fm-p">$</span>
+                    <code>scripts/publish.sh tag X.Y.Z stable</code>
+                    <div class="md-code__nav">
+                        <button class="md-code__button" type="button" data-md-type="copy" title="Copy to clipboard"
+                            aria-label="Copy to clipboard"></button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+</div>
+<script>
+    // Wire the landing-page copy buttons. Delegated on document so it survives instant navigation; scoped to
+    // .fm-copy / .fm-cmd so it never touches zensical's own code-block copy buttons. Strips the leading "$ " prompt,
+    // then reuses zensical's own snackbar element so the feedback matches the native code-block copy button exactly.
+    document.addEventListener("click", function (e) {
+        var btn = e.target.closest(".fm-copy .md-code__button, .fm-cmd .md-code__button");
+        if (!btn) return;
+        var row = btn.closest(".fm-copy, .fm-cmd");
+        var code = row && row.querySelector("code");
+        if (!code) return;
+        navigator.clipboard.writeText(code.textContent.replace(/^\s*\$\s+/, "")).then(function () {
+            btn.focus();
+            var dialog = document.querySelector("[data-md-component=dialog]");
+            if (!dialog) return;
+            (dialog.querySelector(".md-dialog__inner") || dialog).textContent = "Copied to clipboard";
+            dialog.classList.add("md-dialog--active");
+            window.clearTimeout(dialog.fmResetTimer);
+            dialog.fmResetTimer = window.setTimeout(function () {
+                dialog.classList.remove("md-dialog--active");
+            }, 2000);
+        });
+    });
+</script>
+{% endblock %}
+{% block content %}{% endblock %}
