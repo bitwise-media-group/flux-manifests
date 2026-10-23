@@ -26,6 +26,8 @@ publish.sh tag <from> <to>         # re-tag every image (components first, entry
   `manifests/platform`. A new component is picked up automatically.
 - **The entrypoint goes last.** A tag never points at an entrypoint whose components aren't there yet.
 - **Sign before moving on.** Each digest is signed (keylessly, or with `COSIGN_KEY` for KMS mode) right after its push.
+  cosign's output, which repeats the sigstore terms of use for every image, is held back unless signing fails; each
+  `pushed` line records the transparency log index instead.
 - **Retagging pulls first.** `tag` pulls each source image before tagging, so a typo can never strand a channel on
   nothing.
 - **Every registry.** The script pushes to each prefix in `REGISTRIES`: the GCP platform registry always, and the AWS

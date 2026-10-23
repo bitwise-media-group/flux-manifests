@@ -49,16 +49,26 @@ images() {
   echo "platform=platform"
 }
 
-sign() { # sign <image@digest>
+sign() { # sign <image@digest>; prints the transparency log index
+  local out
+  local -a args
   if [[ -n "${COSIGN_KEY:-}" ]]; then
-    cosign sign --yes --key "$COSIGN_KEY" "$1"
+    args=(--yes --key "$COSIGN_KEY")
   else
-    cosign sign --yes --use-signing-config=false "$1"
+    args=(--yes --use-signing-config=false)
   fi
+  # cosign has no quiet flag, and keyless signing repeats its progress and
+  # the sigstore terms of use on every image: hold the output back, show it
+  # only when signing fails, and keep just the tlog index for forensics
+  if ! out="$(cosign sign "${args[@]}" "$1" 2>&1)"; then
+    printf '%s\n' "$out" >&2
+    return 1
+  fi
+  sed -n 's/^tlog entry created with index: //p' <<< "$out"
 }
 
 push() { # push <tag> <revision>
-  local tag="$1" revision="$2" entry name path registry url digest
+  local tag="$1" revision="$2" entry name path registry url digest index
   : "${SOURCE:?SOURCE must name the source URL recorded in the artifacts}"
   for entry in $(images); do
     name="${entry%%=*}"
@@ -70,14 +80,15 @@ push() { # push <tag> <revision>
         --source "$SOURCE" \
         --revision "$revision" \
         --output json | jq -r .digest)"
-      sign "$registry/manifests/$name@$digest"
-      echo "pushed $url:$tag ($digest)"
+      index="$(sign "$registry/manifests/$name@$digest")"
+      echo "pushed $url:$tag ($digest${index:+, tlog $index})"
     done
   done
 }
 
 tag() { # tag <from> <to>
-  local from="$1" to="$2" entry name registry url scratch
+  local from="$1" to="$2" entry name registry url dest
+  # global, not local: the EXIT trap fires after this function has returned
   scratch="$(mktemp -d "${TMPDIR:-/tmp}/publish.XXXXXX")"
   trap 'rm -rf "$scratch"' EXIT
   for entry in $(images); do
@@ -86,7 +97,10 @@ tag() { # tag <from> <to>
       url="oci://$registry/manifests/$name"
       # sanity: the source tag must exist (and be pullable) before the
       # channel moves - a typo must never strand a channel on nothing
-      flux pull artifact "$url:$from" --output "$scratch/$name" > /dev/null
+      # flux extracts into an existing directory only
+      dest="$scratch/$registry/$name"
+      mkdir -p "$dest"
+      flux pull artifact "$url:$from" --output "$dest" > /dev/null
       flux tag artifact "$url:$from" --tag "$to"
       echo "tagged $url:$from -> $to"
     done
