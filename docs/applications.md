@@ -64,10 +64,34 @@ publishes the record.
 
 ## An identity
 
-Declare dex clients through the cluster module (`applications[*].dex_clients`). The cluster module composes them into
-`DEX_CLIENTS` beside the platform's own, mints a `dex-client-<id>` secret container for every confidential client, and
-the [dex](components/dex.md) component registers the client and syncs its secret. The application syncs the same
-container (`${SECRET_PREFIX}dex-client-<id>`) into its own namespace, so both sides read the same value.
+With [dex](components/dex.md) elected, ship a `DexClient` in the application's own namespace.
+[dex-client-controller](components/dex.md#dex-client-controller) registers it in dex and writes the client's credentials
+to a Secret beside it, so nothing outside the application's image is involved:
+
+```yaml
+apiVersion: dex.bitwisemedia.uk/v1alpha1
+kind: DexClient
+metadata:
+  name: status
+  namespace: patchy
+spec:
+  name: Patchy status
+  redirectURIs:
+    - https://patchy.${PLATFORM_DOMAIN}/oauth2/callback
+```
+
+- **The client ID** is `<namespace>-<name>` (`patchy-status` here). An explicit `spec.clientID` must start with
+  `<namespace>-`; the `restrict-dex-resources` policy rejects anything else, so no application can claim another's
+  client.
+- **The Secret** is `<name>-dex-client` (`status-dex-client`), with keys `clientID`, `clientSecret` and `issuer`. Point
+  the application's OIDC configuration at it. It's owned by the `DexClient`, so deleting the client deletes it.
+- **A public client** (a CLI, authorization code + PKCE) sets `public: true` and gets no secret.
+- **Readiness.** `kubectl get dexclient -A` shows each client's ID and `Ready` condition. Gate on `dex` (a Kustomization
+  `dependsOn`, or `has "dex" (splitList "," "${PLATFORM_COMPONENTS}")` in a template) since the kind only exists where
+  dex is elected.
+
+Connectors stay platform-owned: a `DexConnector` outside the `dex` namespace is rejected, and connectors are configured
+through the cluster module (`DEX_CONNECTORS`).
 
 ## Its own image signer
 

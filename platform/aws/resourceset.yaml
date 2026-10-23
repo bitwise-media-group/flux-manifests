@@ -58,7 +58,7 @@ spec:
       (dict "name" "gateway" "timeout" "5m" "dependsOn" (list "cert-manager-issuers") "when" (list) "ref" "${GATEWAY_MANIFESTS_REF:=}")
       (dict "name" "rbac" "timeout" "5m" "dependsOn" (list) "when" (list) "ref" "${RBAC_MANIFESTS_REF:=}")
       (dict "name" "secret-sync" "timeout" "5m" "dependsOn" (list "kyverno-policies") "when" (list) "ref" "${SECRET_SYNC_MANIFESTS_REF:=}")
-      (dict "name" "dex" "timeout" "5m" "dependsOn" (list "kyverno-policies" "gateway" "secret-sync") "when" (list "dex") "ref" "${DEX_MANIFESTS_REF:=}")
+      (dict "name" "dex" "timeout" "5m" "dependsOn" (list "kyverno-policies" "cert-manager" "gateway" "secret-sync") "when" (list "dex") "ref" "${DEX_MANIFESTS_REF:=}")
       (dict "name" "flux-web" "timeout" "5m" "dependsOn" (list "gateway" "secret-sync" "dex") "when" (list "flux-web" "dex") "ref" "${FLUX_WEB_MANIFESTS_REF:=}")
       (dict "name" "arc" "timeout" "5m" "dependsOn" (list "kyverno-policies") "when" (list "arc") "ref" "${ARC_MANIFESTS_REF:=}")
     >>

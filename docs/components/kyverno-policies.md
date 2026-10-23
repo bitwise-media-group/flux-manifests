@@ -44,7 +44,8 @@ The reasoning for each is in [Signing & verification](../concepts/signing.md#the
 - **`mutateDigest: false`, `verifyDigest: false`**, because Kyverno rejects digest mutation under Audit, and the policy
   must be valid in both modes.
 - **`webhookConfiguration.failurePolicy: Fail`**, with a 30-second timeout.
-- **One identity, no carve-outs.** Applications signed elsewhere bring a PolicyException plus their own ClusterPolicy.
+- **One identity, no carve-outs.** Applications signed elsewhere bring a PolicyException plus their own ClusterPolicy,
+  as does the dex component for [dex-client-controller](dex.md#dex-client-controller)'s ghcr image.
 - **Variables compared inline**, not through `spec.inputs`, so an empty key can't become null.
 
 ## Cluster variables

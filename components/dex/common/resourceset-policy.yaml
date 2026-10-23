@@ -1,0 +1,90 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+
+# What RBAC alone cannot say about dex's custom resources. The chart
+# aggregates DexClient write access into every namespace's edit/admin
+# roles, so an application can register its own clients -- but a DexClient
+# may name any spec.clientID, and the controller resolves a clash only by
+# age. This policy closes both gaps:
+#
+#   - a DexClient's spec.clientID is either absent (the controller then
+#     uses <namespace>-<name>) or starts with "<namespace>-", so client IDs
+#     are partitioned by namespace and no application can claim, or squat
+#     on, another's. Platform clients (DEX_CLIENTS) are static and
+#     read-only through dex's API whatever their ID.
+#   - DexConnectors are admitted only in the dex namespace. A connector
+#     changes how everyone signs in; connectors stay platform-owned, set
+#     through DEX_CONNECTORS.
+#
+# Enforced from the start rather than following KYVERNO_FAILURE_ACTION: a
+# soak would leave the takeover open while it runs, and nothing on a
+# running cluster predates the rule.
+#
+# A ResourceSet, not a plain manifest, only for dependsOn: kyverno rejects
+# a policy naming a kind it cannot resolve, and the CRDs arrive with the
+# dex-client-controller release in this same reconcile.
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSet
+metadata:
+  name: dex-policy
+  namespace: dex
+spec:
+  dependsOn:
+    - apiVersion: apiextensions.k8s.io/v1
+      kind: CustomResourceDefinition
+      name: dexclients.dex.bitwisemedia.uk
+    - apiVersion: apiextensions.k8s.io/v1
+      kind: CustomResourceDefinition
+      name: dexconnectors.dex.bitwisemedia.uk
+  resourcesTemplate: |
+    ---
+    apiVersion: kyverno.io/v1
+    kind: ClusterPolicy
+    metadata:
+      name: restrict-dex-resources
+    spec:
+      # Admission only: the rules judge requests, and background scans
+      # would need kyverno's report controller granted read on the CRDs.
+      background: false
+      webhookConfiguration:
+        failurePolicy: Fail
+        timeoutSeconds: 10
+      rules:
+        - name: dexclient-namespace-prefix
+          match:
+            any:
+              - resources:
+                  kinds:
+                    - dex.bitwisemedia.uk/v1alpha1/DexClient
+                  operations:
+                    - CREATE
+                    - UPDATE
+          validate:
+            failureAction: Enforce
+            message: >-
+              spec.clientID must be omitted or start with
+              "{{ request.object.metadata.namespace }}-".
+            pattern:
+              spec:
+                =(clientID): "{{ request.object.metadata.namespace }}-*"
+        - name: dexconnector-platform-only
+          match:
+            any:
+              - resources:
+                  kinds:
+                    - dex.bitwisemedia.uk/v1alpha1/DexConnector
+                  operations:
+                    - CREATE
+                    - UPDATE
+          exclude:
+            any:
+              - resources:
+                  namespaces:
+                    - dex
+          validate:
+            failureAction: Enforce
+            message: >-
+              DexConnectors are platform-owned and may only be created in
+              the dex namespace; connectors are configured through
+              DEX_CONNECTORS.
+            deny: {}

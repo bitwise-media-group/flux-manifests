@@ -39,3 +39,24 @@ spec:
   filter:
     semver: "${DEX_IMAGE_SEMVER:=<3.0.0 >=2.44.0}"
     limit: 1
+---
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+#
+# dex-client-controller is first-party: its chart is published to ghcr by
+# its own release workflow and signed there, so it is followed straight
+# from ghcr (generic listing -- the package is public) rather than mirrored
+# into the platform registry. See resourceset-client-controller.yaml.
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSetInputProvider
+metadata:
+  name: dex-client-controller
+  namespace: dex
+  annotations:
+    fluxcd.controlplane.io/reconcileEvery: 30m
+spec:
+  type: OCIArtifactTag
+  url: oci://ghcr.io/bitwise-media-group/dex-client-controller/charts/dex-client-controller
+  filter:
+    semver: "${DEX_CLIENT_CONTROLLER_SEMVER:=<0.2.0 >=0.1.0}"
+    limit: 1

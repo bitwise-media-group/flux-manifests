@@ -68,7 +68,9 @@ The [kyverno-policies](../components/kyverno-policies.md) component installs one
 - **One identity, no carve-outs.** The policy knows only the platform's signer. An application whose images are signed
   elsewhere ships a `PolicyException` in the `kyverno` namespace, scoped to its own namespaces, beside its own
   ClusterPolicy verifying its signer. Every image is still verified by exactly one policy, and the platform never learns
-  the application's registry. See [Applications](../applications.md).
+  the application's registry. See [Applications](../applications.md). The platform's one first-party ghcr image,
+  [dex-client-controller](../components/dex.md#dex-client-controller), uses the same pattern from inside the dex
+  component, scoped to the controller's own pods.
 - **Cloud system images are skipped by registry**: `registry.k8s.io/*` everywhere, the EKS add-on registries on aws,
   `gke.gcr.io/*` and `gcr.io/gke-release/*` on google. Registries are the stable contract; new managed namespaces appear
   with cluster features. `kube-system` is also excluded at the webhook level by the kyverno chart.

@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT
 
 # dex is the platform's OIDC identity provider: the Flux status web UI,
-# kubectl and any application that declares a client sign humans in
+# kubectl and any application that ships a DexClient sign humans in
 # through it. Upstream identity is arbitrary -- every connector dex config
 # carries comes from the terraform-published DEX_CONNECTORS cluster var (a
 # JSON array; see the connectors: block below), so a google connector's
@@ -15,14 +15,18 @@
 # triple below is the contract with local.dex_workload_identities in
 # dex.tf -- change them together or the identity binding silently breaks.
 #
-# The relying parties are equally data-driven: DEX_CLIENTS carries every
-# static client as JSON ({id, name, public, redirectURIs} per entry; the
-# cluster module composes it from the platform's own clients and every
-# application's declared ones), so dex never learns an application's
-# name. A confidential client's secret is the terraform-minted
-# dex-client-<id> container, synced into the dex-env Secret by the
-# per-cloud resourceset-secrets.yaml ranging over the same list; a public
-# client (PKCE) has no secret at all.
+# The relying parties come from two places. DEX_CLIENTS carries the
+# platform's own static clients as JSON ({id, name, public, redirectURIs}
+# per entry; flux-web and kubectl, composed by the cluster module), so dex
+# never learns an application's name. A confidential static client's
+# secret is the terraform-minted dex-client-<id> container, synced into
+# the dex-env Secret by the per-cloud resourceset-secrets.yaml ranging
+# over the same list; a public client (PKCE) has no secret at all.
+# Application clients are DexClient objects in the application's own
+# namespace, which dex-client-controller (resourceset-client-controller.yaml)
+# registers through dex's gRPC API -- enabled below, behind mutual TLS from
+# the namespace-local PKI in pki.yaml. Static clients are read-only through
+# that API, so no DexClient can ever take over a platform client.
 apiVersion: fluxcd.controlplane.io/v1
 kind: ResourceSet
 metadata:
@@ -119,6 +123,19 @@ spec:
         envFrom:
           - secretRef:
               name: dex-env
+        # The gRPC API dex-client-controller drives. The chart opens the
+        # port on the pod and Service; config.grpc below binds it behind
+        # mutual TLS with the dex-grpc certificate (pki.yaml), mounted here.
+        grpc:
+          enabled: true
+        volumes:
+          - name: grpc-tls
+            secret:
+              secretName: dex-grpc
+        volumeMounts:
+          - name: grpc-tls
+            mountPath: /etc/dex/grpc
+            readOnly: true
         config:
           # The public URL, baked into every token's iss claim; served by
           # the platform Gateway via the httpRoute below.
@@ -130,6 +147,14 @@ spec:
             type: kubernetes
             config:
               inCluster: true
+          # tlsClientCA makes it mutual: only a certificate the dex-grpc
+          # CA signed (the controller's) may call the API, and the API has
+          # no other authentication.
+          grpc:
+            addr: 0.0.0.0:5557
+            tlsCert: /etc/dex/grpc/tls.crt
+            tlsKey: /etc/dex/grpc/tls.key
+            tlsClientCA: /etc/dex/grpc/ca.crt
           oauth2:
             # The relying parties are first-party platform UIs; a consent
             # screen between two internal pages is pure friction.
@@ -150,7 +175,8 @@ spec:
               config: << toJson $c.config >>
             << end >>
           << if $clients >>
-          # One static client per DEX_CLIENTS entry. A confidential client
+          # One static client per DEX_CLIENTS entry (the platform's own;
+          # applications ship DexClient objects instead). A confidential client
           # reads its secret from the env the dex-env sync provides
           # (DEX_CLIENT_<ID>, the terraform-generated dex-client-<id>
           # container - both sides of every pair read the same Secrets

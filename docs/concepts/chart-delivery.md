@@ -124,3 +124,14 @@ the chart version follows the mirror like every other component.
 | arc                          | `gha-runner-scale-set-controller`                      | `ARC_SEMVER`                                       |
 
 The defaults for each range are on the component pages and in [Cluster variables](../reference/cluster-vars.md).
+
+## First-party charts
+
+[dex-client-controller](../components/dex.md#dex-client-controller), in the dex component, is the one chart that isn't
+mirrored. It's first-party: its own release workflow publishes the chart and image to ghcr and signs both, so mirroring
+would only re-sign an artifact whose provenance is already known. Its input provider lists ghcr directly
+(`type: OCIArtifactTag`, anonymous, range `DEX_CLIENT_CONTROLLER_SEMVER`), its OCIRepository uses `provider: generic`
+and is always verified keylessly against the controller repository's own identity (a KMS-keyed cluster's key never
+signed it), and the release runs the chart's default ghcr image. Because that image carries a different identity from
+the platform's, the dex component also ships the image exception and policy for it, following
+[an application's own image signer](../applications.md#its-own-image-signer).

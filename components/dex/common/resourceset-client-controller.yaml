@@ -1,0 +1,87 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+
+# dex-client-controller: application identity as data. An application ships
+# a DexClient in its own manifest image; the controller registers it in
+# dex through the gRPC API (mutual TLS, pki.yaml) and writes the client's
+# credentials into a Secret in the application's namespace
+# (<name>-dex-client: clientID, clientSecret, issuer). No terraform, no
+# cloud secret, no dex restart -- and the platform still never learns an
+# application's name.
+#
+# The controller is first-party, so it is pulled straight from ghcr and
+# verified against its own release identity rather than mirrored into the
+# platform registry: the chart is signed keylessly by the controller
+# repository's own helm workflow, on every cluster whatever the platform's
+# signing mode (a KMS-keyed cluster's key never signed it). Its image is
+# verified at admission by policy-client-controller.yaml.
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSet
+metadata:
+  name: dex-client-controller
+  namespace: dex
+spec:
+  inputsFrom:
+    - kind: ResourceSetInputProvider
+      name: dex-client-controller
+  resourcesTemplate: |
+    ---
+    apiVersion: source.toolkit.fluxcd.io/v1
+    kind: OCIRepository
+    metadata:
+      name: dex-client-controller
+      namespace: dex
+    spec:
+      interval: 1h
+      url: oci://ghcr.io/bitwise-media-group/dex-client-controller/charts/dex-client-controller
+      # Public package: anonymous pulls, no cloud credential.
+      provider: generic
+      ref:
+        tag: << inputs.tag >>
+      verify:
+        provider: cosign
+        matchOIDCIdentity:
+          # single-quoted: the values are regexes whose backslashes a
+          # double-quoted scalar would mangle when the rendered template
+          # text is parsed
+          - issuer: '^https://token\.actions\.githubusercontent\.com$'
+            subject: '^https://github\.com/bitwise-media-group/dex-client-controller/'
+    ---
+    apiVersion: helm.toolkit.fluxcd.io/v2
+    kind: HelmRelease
+    metadata:
+      name: dex-client-controller
+      namespace: dex
+    spec:
+      interval: 30m
+      timeout: 5m
+      # dex must be serving its gRPC API (and the release's Service must
+      # exist) before the controller can connect.
+      dependsOn:
+        - name: dex
+      chartRef:
+        kind: OCIRepository
+        name: dex-client-controller
+        namespace: dex
+      values:
+        # The chart's default image (ghcr, v<appVersion>): the chart and
+        # image release together, so the chart pick is the image pick.
+        dex:
+          address: dex.dex.svc.cluster.local:5557
+          # Written into every generated client Secret (key issuer), so an
+          # application needs nothing but its own Secret to configure OIDC.
+          issuer: https://dex.${PLATFORM_DOMAIN}
+        # The CRDs render as templates with resource-policy: keep, so an
+        # uninstall never takes every DexClient with it.
+        crds:
+          install: true
+        # DexClient write access aggregates into the built-in edit/admin
+        # roles, so whoever may edit a namespace may register its clients.
+        # DexConnector aggregates into view only, and the
+        # restrict-dex-resources policy (resourceset-policy.yaml) keeps
+        # connectors in this namespace: connectors stay platform-owned
+        # (DEX_CONNECTORS).
+        rbac:
+          aggregateToDefaultRoles: true
+        nodeSelector:
+          role: system

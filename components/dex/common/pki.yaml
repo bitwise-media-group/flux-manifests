@@ -1,0 +1,93 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+
+# The private PKI behind dex's gRPC API. dex has no API authentication
+# beyond TLS client certificates, so whoever holds a certificate its
+# tlsClientCA trusts administers every client and connector. That CA is
+# therefore local to this namespace: a self-signed root (dex-grpc-ca)
+# behind a namespaced CA Issuer (dex-grpc) that only objects in dex can
+# reference, signing exactly two leaves -- dex's serving certificate and
+# dex-client-controller's client certificate. Nothing outside dex can ask
+# for a certificate the API trusts.
+#
+# Both leaves carry ca.crt (the root) beside tls.crt/tls.key, which is
+# all either side needs: dex verifies the controller against the root,
+# the controller verifies dex's serving name against the same root. dex
+# reloads its gRPC certificate and client CA when the mounted Secret
+# changes and the controller re-reads its own on reconnect, so cert-manager
+# renewals need no restarts.
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: dex-grpc-selfsigned
+  namespace: dex
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: dex-grpc-ca
+  namespace: dex
+spec:
+  isCA: true
+  commonName: dex-grpc-ca
+  secretName: dex-grpc-ca
+  duration: 87600h
+  renewBefore: 720h
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  issuerRef:
+    kind: Issuer
+    name: dex-grpc-selfsigned
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: dex-grpc
+  namespace: dex
+spec:
+  ca:
+    secretName: dex-grpc-ca
+---
+# dex's serving certificate, named for the Service the controller dials
+# (the release's Service in this namespace).
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: dex-grpc
+  namespace: dex
+spec:
+  secretName: dex-grpc
+  commonName: dex.dex.svc.cluster.local
+  dnsNames:
+    - dex.dex.svc
+    - dex.dex.svc.cluster.local
+  usages:
+    - server auth
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  issuerRef:
+    kind: Issuer
+    name: dex-grpc
+---
+# The controller's client certificate, in the Secret the chart mounts by
+# default (<fullname>-dex-tls).
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: dex-client-controller-dex-tls
+  namespace: dex
+spec:
+  secretName: dex-client-controller-dex-tls
+  commonName: dex-client-controller
+  usages:
+    - client auth
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  issuerRef:
+    kind: Issuer
+    name: dex-grpc

@@ -1,0 +1,110 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+
+# Image verification for dex-client-controller. verify-platform-signature
+# holds every pod image to the platform publish identity, but the
+# controller image comes straight from ghcr, signed by goreleaser inside
+# the shared release workflow -- a different identity -- so the platform
+# rule can never pass it. The patchy pattern restores closure with two
+# objects:
+#
+#   - a PolicyException (in the kyverno namespace, the only one kyverno
+#     admits exceptions from) exempting the controller's pods -- and only
+#     those: dex itself stays under the platform rule -- and
+#   - the verify-dex-client-controller-signature ClusterPolicy, matching
+#     exactly the same pods, verifying the ghcr image against its own
+#     identity and admitting no other image into them. Every container in
+#     those pods is therefore still verified by exactly one policy, and the
+#     exception can never widen into "unverified".
+#
+# Unlike the platform rule, the attestor is keyless on every cluster: a
+# KMS-keyed cluster's key never signed a first-party ghcr image. Its
+# Fulcio identity is the REUSABLE workflow's job_workflow_ref
+# (github-workflows, not the controller repository), pinned to releases cut
+# from the controller repository via the githubWorkflowRepository
+# extension. type: SigstoreBundle, mutateDigest/verifyDigest off and the
+# rekor.url stand-in follow verify-platform-signature (see
+# kyverno-policies), as does failureAction, so the two soak and enforce
+# together.
+apiVersion: kyverno.io/v2
+kind: PolicyException
+metadata:
+  name: dex-client-controller-images
+  namespace: kyverno
+spec:
+  exceptions:
+    - policyName: verify-platform-signature
+      ruleNames:
+        - verify-platform-signature
+  match:
+    any:
+      - resources:
+          kinds:
+            - Pod
+          namespaces:
+            - dex
+          names:
+            - dex-client-controller-*
+---
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: verify-dex-client-controller-signature
+spec:
+  webhookConfiguration:
+    failurePolicy: Fail
+    timeoutSeconds: 30
+  rules:
+    - name: verify-dex-client-controller-image
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+              namespaces:
+                - dex
+              names:
+                - dex-client-controller-*
+      verifyImages:
+        - imageReferences:
+            - "ghcr.io/bitwise-media-group/dex-client-controller*"
+          type: SigstoreBundle
+          failureAction: "${KYVERNO_FAILURE_ACTION:=Audit}"
+          required: true
+          mutateDigest: false
+          verifyDigest: false
+          attestors:
+            - count: 1
+              entries:
+                - keyless:
+                    subjectRegExp: '^https://github\.com/bitwise-media-group/github-workflows/'
+                    issuerRegExp: '^https://token\.actions\.githubusercontent\.com$'
+                    additionalExtensions:
+                      githubWorkflowRepository: bitwise-media-group/dex-client-controller
+                    # satisfies CRD validation only - see verify-platform-signature
+                    rekor:
+                      url: https://rekor.sigstore.dev
+    # The exception moves the check, it must not remove it: the exempted
+    # pods may run the controller image and nothing else, so no sidecar or
+    # init image ever rides the exemption unverified.
+    - name: dex-client-controller-image-only
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+              namespaces:
+                - dex
+              names:
+                - dex-client-controller-*
+      validate:
+        failureAction: "${KYVERNO_FAILURE_ACTION:=Audit}"
+        message: dex-client-controller pods may only run the ghcr.io/bitwise-media-group/dex-client-controller image.
+        pattern:
+          spec:
+            containers:
+              - image: "ghcr.io/bitwise-media-group/dex-client-controller*"
+            =(initContainers):
+              - image: "ghcr.io/bitwise-media-group/dex-client-controller*"
+            =(ephemeralContainers):
+              - image: "ghcr.io/bitwise-media-group/dex-client-controller*"
