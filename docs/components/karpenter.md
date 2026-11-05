@@ -70,16 +70,12 @@ The one platform-owned node class, and a contract applications build on:
   default), or for a custom image an id term or one name and owner term per owner. `amiFamily` is set only when
   `KARPENTER_AMI_FAMILY` is (`AL2023`, for custom images; an alias implies its family).
 - **subnets and security groups**: everything tagged `${CLUSTER_DISCOVERY_TAG}=${CLUSTER_DISCOVERY_VALUE}`. terraform
-  tags the cluster security group and, while `network.manage_discovery_tags` is on, the node subnets.
+  tags the cluster security group and, while `network.manage_discovery_tags` is on, the node subnets only. The public
+  and internal subnets stay untagged, so Karpenter never launches nodes into them. Older terraform-aws-eks-flux releases
+  tagged the public subnets too; the release that publishes `KARPENTER_NAMESPACE` removes those tags.
 - **root volume**: `KARPENTER_NODE_DISK_GIB`, encrypted gp3 on `/dev/xvda` (`/dev/xvdb`, the data volume, for a
   Bottlerocket alias).
 - **metadata**: IMDSv2 only, hop limit 1, so pods can't reach the node's credentials.
-
-!!! warning "Public subnets carry the discovery tag too"
-
-    terraform's discovery tagging covers `network.public_subnet_ids` as well as the node subnets, and the subnet selector
-    matches on that tag alone. Until terraform narrows the tag or publishes the node subnet ids, Karpenter can choose a
-    public subnet for a node.
 
 ### `NodePool ${KARPENTER_NODE_POOL_NAME}`
 
