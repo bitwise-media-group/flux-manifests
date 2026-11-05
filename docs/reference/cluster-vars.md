@@ -80,7 +80,8 @@ Published by `terraform-aws-eks-flux`.
 | `CLUSTER_DISCOVERY_TAG`, `CLUSTER_DISCOVERY_VALUE`                                         | `karpenter.sh/discovery`, `patchy-x`        | karpenter: `EC2NodeClass default` subnet and security group selector terms                                                                                                       |
 | `KARPENTER_NODE_ROLE`                                                                      | `patchy-x-karpenter-node-...`               | karpenter: `EC2NodeClass default` `role`                                                                                                                                         |
 | `KARPENTER_INTERRUPTION_QUEUE`                                                             | `patchy-x-karpenter-interruption-...`       | karpenter: `settings.interruptionQueue`                                                                                                                                          |
-| `KARPENTER_SERVICE_ACCOUNT`                                                                | `karpenter`                                 | karpenter: `serviceAccount.name`, the account the Pod Identity association binds in `kube-system`                                                                                |
+| `KARPENTER_NAMESPACE`                                                                      | `kube-system`                               | karpenter: the namespace of every karpenter object (the Pod Identity association's namespace); the component creates it when it isn't there                                      |
+| `KARPENTER_SERVICE_ACCOUNT`                                                                | `karpenter`                                 | karpenter: `serviceAccount.name`, the account the Pod Identity association binds in `KARPENTER_NAMESPACE`                                                                        |
 | `KARPENTER_AMI_SELECTOR_TERMS`                                                             | `[{"alias":"al2023@latest"}]`               | karpenter: `EC2NodeClass default` `amiSelectorTerms`, JSON (an alias, an id, or one name and owner term per owner)                                                               |
 | `KARPENTER_AMI_FAMILY`                                                                     | `AL2023` (empty for an alias)               | karpenter: `EC2NodeClass default` `amiFamily`, set only for a custom image                                                                                                       |
 | `KARPENTER_AMI_ALIAS`                                                                      | `al2023@latest` (empty for a custom image)  | karpenter: picks the root volume device (`/dev/xvdb` for a Bottlerocket alias, else `/dev/xvda`)                                                                                 |
@@ -96,16 +97,16 @@ Published by `terraform-aws-eks-flux`.
 terraform grants cloud identities against fixed namespace/ServiceAccount pairs, and the components pin those names in
 their HelmRelease values so the contract holds:
 
-| ServiceAccount                                                               | used for                                                                      |
-| ---------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| `external-dns/external-dns`                                                  | DNS zone access                                                               |
-| `cert-manager/cert-manager`                                                  | DNS-01 challenges                                                             |
-| `kyverno/kyverno-admission-controller`, `kyverno/kyverno-reports-controller` | registry access for signatures; KMS verify in keyed mode                      |
-| `flux-system/source-controller`, `flux-system/flux-operator`                 | registry access for artifacts and tag listing                                 |
-| `aws-load-balancer-controller/aws-load-balancer-controller` (aws)            | ELB/EC2 for the NLB                                                           |
-| `kube-system/${KARPENTER_SERVICE_ACCOUNT}` (aws, `karpenter` by default)     | EC2 fleet launch/terminate, PassRole on the node role, the interruption queue |
-| `dex/dex` (google)                                                           | Directory API through domain-wide delegation                                  |
-| `dex/dex-secrets`, `flux-system/flux-web-secrets`                            | secret sync readers                                                           |
+| ServiceAccount                                                                                  | used for                                                                      |
+| ----------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `external-dns/external-dns`                                                                     | DNS zone access                                                               |
+| `cert-manager/cert-manager`                                                                     | DNS-01 challenges                                                             |
+| `kyverno/kyverno-admission-controller`, `kyverno/kyverno-reports-controller`                    | registry access for signatures; KMS verify in keyed mode                      |
+| `flux-system/source-controller`, `flux-system/flux-operator`                                    | registry access for artifacts and tag listing                                 |
+| `aws-load-balancer-controller/aws-load-balancer-controller` (aws)                               | ELB/EC2 for the NLB                                                           |
+| `${KARPENTER_NAMESPACE}/${KARPENTER_SERVICE_ACCOUNT}` (aws, `kube-system/karpenter` by default) | EC2 fleet launch/terminate, PassRole on the node role, the interruption queue |
+| `dex/dex` (google)                                                                              | Directory API through domain-wide delegation                                  |
+| `dex/dex-secrets`, `flux-system/flux-web-secrets`                                               | secret sync readers                                                           |
 
 ## The env contracts
 

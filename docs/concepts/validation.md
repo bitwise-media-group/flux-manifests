@@ -101,6 +101,6 @@ curl <crd-yaml> | yq -o=json '.spec.versions[0].schema.openAPIV3Schema'
 ## Other checks
 
 `make lint` adds, among the toolchain's standard checks, a kubescape configuration scan over every per-cloud component
-overlay. Overlays made only of custom resources kubescape can't map (cert-manager-issuers, cilium, flux, karpenter,
-kyverno-policies, rbac, secret-sync) are skipped; the workloads themselves are scanned in flux-containers, over each
-chart's rendered manifests. Accepted kubescape findings live in `.kubescape/exceptions.json`.
+overlay. Overlays made only of custom resources kubescape can't map, plus at most their Namespace (cert-manager-issuers,
+cilium, flux, karpenter, kyverno-policies, rbac, secret-sync), are skipped; the workloads themselves are scanned in
+flux-containers, over each chart's rendered manifests. Accepted kubescape findings live in `.kubescape/exceptions.json`.

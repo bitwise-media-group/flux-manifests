@@ -19,16 +19,26 @@ terraform never has to apply a resource whose CRD Flux hasn't installed yet.
 | **Tier**       | core                                                                                                                               |
 | **Clouds**     | aws only (GKE provisions node pools itself)                                                                                        |
 | **Depends on** | kyverno-policies                                                                                                                   |
-| **Namespace**  | `kube-system`                                                                                                                      |
+| **Namespace**  | `KARPENTER_NAMESPACE` (`kube-system` by default)                                                                                   |
 | **Chart**      | [`karpenter`](https://oss.bitwisemedia.uk/flux-containers/charts/karpenter/), range `KARPENTER_SEMVER` (default `<2.0.0 >=1.15.1`) |
 | **Timeout**    | 10m                                                                                                                                |
 
-## Why `kube-system`
+## Namespace
 
-The Pod Identity association binds `<namespace>/<service account>`. terraform publishes the ServiceAccount name
-(`KARPENTER_SERVICE_ACCOUNT`) but not the namespace, which is its `workload_identity.karpenter.namespace` default,
-`kube-system`, and upstream's recommended home too. The chart's public-key Secret is named `cosign-pub-karpenter` rather
-than `cosign-pub`, because the cilium component already owns a `cosign-pub` in `kube-system`.
+The Pod Identity association binds `<namespace>/<service account>`, and the chart has to install exactly there or the
+controller runs without credentials. terraform publishes both halves of `workload_identity.karpenter`:
+`KARPENTER_NAMESPACE` and `KARPENTER_SERVICE_ACCOUNT`. Every namespaced object in the component reads
+`KARPENTER_NAMESPACE`, so overriding the pair in terraform needs no manifests change. The default is `kube-system`,
+upstream's recommended home.
+
+`namespace.yaml` creates the namespace when it doesn't exist. It's applied with `ssa: IfNotPresent`, so flux never
+patches an existing namespace such as `kube-system`, and with `prune: disabled`, so changing the variable never deletes
+the old one. The chart's public-key Secret is named `cosign-pub-karpenter` rather than `cosign-pub`, because the cilium
+component already owns a `cosign-pub` in `kube-system`.
+
+`KARPENTER_NAMESPACE` is required, with no default, like every variable terraform always publishes. It needs the
+terraform-aws-eks-flux release that publishes it; on an older module the karpenter Kustomization fails strict
+substitution.
 
 ## Notable values
 
@@ -96,14 +106,14 @@ labels and limits. It should repeat the Cilium startup taint above. See
 
 ## Identity
 
-The `kube-system/${KARPENTER_SERVICE_ACCOUNT}` ServiceAccount (`karpenter` by default) has a Pod Identity association
-with the controller policy, created by terraform. That policy scopes launches and terminations to resources tagged for
-this cluster, and allows `iam:PassRole` on the node role only.
+The `${KARPENTER_NAMESPACE}/${KARPENTER_SERVICE_ACCOUNT}` ServiceAccount (`kube-system/karpenter` by default) has a Pod
+Identity association with the controller policy, created by terraform. That policy scopes launches and terminations to
+resources tagged for this cluster, and allows `iam:PassRole` on the node role only.
 
 ## Cluster variables
 
 `CLUSTER_NAME`, `AWS_REGION`, `CLUSTER_DISCOVERY_TAG`, `CLUSTER_DISCOVERY_VALUE`, `KARPENTER_NODE_ROLE`,
-`KARPENTER_INTERRUPTION_QUEUE`, `KARPENTER_SERVICE_ACCOUNT`, `KARPENTER_NODE_POOL_NAME`,
+`KARPENTER_INTERRUPTION_QUEUE`, `KARPENTER_NAMESPACE`, `KARPENTER_SERVICE_ACCOUNT`, `KARPENTER_NODE_POOL_NAME`,
 `KARPENTER_INSTANCE_CATEGORIES`, `KARPENTER_INSTANCE_FAMILIES`, `KARPENTER_INSTANCE_SIZES`, `KARPENTER_CAPACITY_TYPES`,
 `KARPENTER_ARCHITECTURES`, `KARPENTER_AMI_ALIAS`, `KARPENTER_AMI_SELECTOR_TERMS`, `KARPENTER_AMI_FAMILY`,
 `KARPENTER_MAX_NODES`, `KARPENTER_CPU_LIMIT`, `KARPENTER_MEMORY_LIMIT`, `KARPENTER_NODE_DISK_GIB`,
@@ -112,6 +122,12 @@ this cluster, and allows `iam:PassRole` on the node role only.
 `KARPENTER_SEMVER`.
 
 ## Source
+
+??? example "components/karpenter/aws/namespace.yaml"
+
+    ```yaml
+    --8<-- "components/karpenter/aws/namespace.yaml"
+    ```
 
 ??? example "components/karpenter/aws/input-provider.yaml"
 

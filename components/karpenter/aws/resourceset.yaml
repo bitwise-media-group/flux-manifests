@@ -10,12 +10,12 @@
 # cluster-side objects (resourceset-nodes.yaml), so terraform never applies
 # a CR whose CRD flux has not installed yet.
 #
-# kube-system, not a namespace of its own: the Pod Identity association
-# binds <workload_identity.karpenter.namespace>/<service_account>, and the
-# namespace half is not a cluster var -- it is terraform's default,
-# kube-system, which is also upstream's recommended home. The ServiceAccount
-# name does arrive as a var (KARPENTER_SERVICE_ACCOUNT), so a renamed
-# account follows terraform without a manifests change.
+# The namespace is KARPENTER_NAMESPACE, not a fixed one: the Pod Identity
+# association binds <workload_identity.karpenter.namespace>/<service_account>,
+# and terraform publishes both halves (KARPENTER_NAMESPACE,
+# KARPENTER_SERVICE_ACCOUNT), so an overridden pair follows terraform
+# without a manifests change. The default is kube-system, upstream's
+# recommended home; namespace.yaml creates any other.
 #
 # The chart is the full karpenter chart, whose crds/ carry the karpenter.sh
 # and karpenter.k8s.aws CRDs. Helm alone installs crds/ once and never
@@ -26,7 +26,7 @@ apiVersion: fluxcd.controlplane.io/v1
 kind: ResourceSet
 metadata:
   name: karpenter
-  namespace: kube-system
+  namespace: ${KARPENTER_NAMESPACE}
 spec:
   inputsFrom:
     - kind: ResourceSetInputProvider
@@ -42,14 +42,15 @@ spec:
     # The signing key's public half (published base64-encoded by terraform,
     # so it drops straight into data); source-controller verifies the chart
     # artifact against it in keyed mode. Named for this component rather
-    # than the usual cosign-pub: kube-system is shared with the cilium
-    # component, whose ResourceSet already owns a cosign-pub here, and two
-    # ResourceSets must not both own (and prune) one object.
+    # than the usual cosign-pub: the default namespace, kube-system, is
+    # shared with the cilium component, whose ResourceSet already owns a
+    # cosign-pub there, and two ResourceSets must not both own (and prune)
+    # one object. The name holds whatever KARPENTER_NAMESPACE is.
     apiVersion: v1
     kind: Secret
     metadata:
       name: cosign-pub-karpenter
-      namespace: kube-system
+      namespace: ${KARPENTER_NAMESPACE}
     type: Opaque
     data:
       cosign.pub: ${COSIGN_PUBLIC_KEY:=}
@@ -59,7 +60,7 @@ spec:
     kind: OCIRepository
     metadata:
       name: karpenter
-      namespace: kube-system
+      namespace: ${KARPENTER_NAMESPACE}
     spec:
       interval: 1h
       url: oci://${PLATFORM_REGISTRY}/charts/karpenter
@@ -85,14 +86,14 @@ spec:
     kind: HelmRelease
     metadata:
       name: karpenter
-      namespace: kube-system
+      namespace: ${KARPENTER_NAMESPACE}
     spec:
       interval: 30m
       timeout: 5m
       chartRef:
         kind: OCIRepository
         name: karpenter
-        namespace: kube-system
+        namespace: ${KARPENTER_NAMESPACE}
       # The CRDs ship in the chart's crds/ directory: replace them on every
       # upgrade too, not just create them on install.
       install:

@@ -30,7 +30,7 @@ apiVersion: fluxcd.controlplane.io/v1
 kind: ResourceSet
 metadata:
   name: karpenter-nodes
-  namespace: kube-system
+  namespace: ${KARPENTER_NAMESPACE}
 spec:
   dependsOn:
     - apiVersion: apiextensions.k8s.io/v1
@@ -66,7 +66,7 @@ spec:
       amiSelectorTerms: << toJson $amiTerms >>
       # The subnets and security group terraform tags with the cluster's
       # discovery tag (karpenter.sh/discovery=<cluster>): the cluster
-      # security group, and every node AND public subnet when
+      # security group, and the node subnets (only those) when
       # network.manage_discovery_tags is on.
       subnetSelectorTerms:
         - tags:

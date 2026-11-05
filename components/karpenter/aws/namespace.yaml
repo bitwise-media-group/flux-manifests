@@ -1,0 +1,24 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+
+# Karpenter's namespace is terraform's: the Pod Identity association binds
+# workload_identity.karpenter's namespace/ServiceAccount pair, published as
+# KARPENTER_NAMESPACE / KARPENTER_SERVICE_ACCOUNT, and the chart must land
+# exactly there or the controller runs without credentials. The default,
+# kube-system, is also upstream's recommended home.
+#
+# Declared so an overridden namespace exists before the objects below it,
+# yet it must never touch kube-system itself:
+#   - ssa: IfNotPresent creates the namespace when it is missing and
+#     otherwise leaves it alone, so kube-system (and its labels) are never
+#     patched by flux.
+#   - prune: disabled keeps flux from garbage-collecting it when the
+#     namespace var changes (a kube-system delete would be refused anyway,
+#     and anything else in the namespace is not this component's to remove).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ${KARPENTER_NAMESPACE}
+  annotations:
+    kustomize.toolkit.fluxcd.io/ssa: IfNotPresent
+    kustomize.toolkit.fluxcd.io/prune: disabled

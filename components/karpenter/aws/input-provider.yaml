@@ -4,7 +4,7 @@ apiVersion: fluxcd.controlplane.io/v1
 kind: ResourceSetInputProvider
 metadata:
   name: karpenter
-  namespace: kube-system
+  namespace: ${KARPENTER_NAMESPACE}
   annotations:
     fluxcd.controlplane.io/reconcileEvery: 30m
 spec:
