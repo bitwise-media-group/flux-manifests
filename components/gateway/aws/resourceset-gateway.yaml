@@ -12,8 +12,11 @@
 # Two shapes, chosen by terraform (gateway.private -> GATEWAY_NLB_SCHEME):
 # internet-facing on the public subnets, pinned to the terraform-reserved
 # Elastic IPs by allocation id (one per subnet, an NLB requirement); or
-# internal on the node subnets, where EIPs cannot apply and the
-# allocations var arrives empty -- which is why this is a ResourceSet: an
+# internal on terraform's internal subnets (network.internal_subnet_ids,
+# the node subnets only when the caller names none), where EIPs cannot
+# apply and the allocations var arrives empty. Either way the subnets
+# arrive resolved as GATEWAY_SUBNETS -- nothing here picks them. The
+# empty allocations var is why this is a ResourceSet: an
 # internal NLB needs the eip-allocations annotation ABSENT, not empty, so
 # the template gates it on the var. Reachability then comes from the
 # private zone's records (split-horizon external-dns) instead of static

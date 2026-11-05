@@ -37,7 +37,9 @@ them. [external-dns](external-dns.md) publishes the records. See [Applications](
       subnets (`GATEWAY_SUBNETS`) and the target type (`GATEWAY_NLB_TARGET_TYPE`; `instance` is all the controller
       supports off the VPC CNI).
     - **Two shapes.** Internet-facing on the public subnets, pinned to terraform-reserved Elastic IPs by
-      `GATEWAY_EIP_ALLOCATIONS`; or internal on the node subnets, where EIPs can't apply. An internal NLB needs the
+      `GATEWAY_EIP_ALLOCATIONS`; or internal on terraform's internal subnets (`network.internal_subnet_ids`, which
+      default to the node subnets), where EIPs can't apply. terraform resolves the subnets either way and publishes them
+      as `GATEWAY_SUBNETS`. An internal NLB needs the
       EIP annotation absent, not empty, which is why the Gateway is rendered by a ResourceSet that gates it. Reachability
       for a private Gateway comes from the private zone's records (split-horizon external-dns).
     - **Gateway API CRDs.** EKS ships none, so the overlay vendors the standard channel (v1.6.1, the seven CRDs Cilium
