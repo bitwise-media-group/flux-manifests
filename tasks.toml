@@ -30,8 +30,10 @@ run = "./scripts/validate.sh"
 # Repo-local replacement for the toolchain's lint-kustomize: kubescape fatals
 # on directories that contain ONLY custom resources it can't map (the
 # entrypoints are a ResourceSet each; kyverno-policies and
-# cert-manager-issuers are ClusterPolicy/ClusterIssuer only). Config
-# coverage of the actual workloads lives in flux-containers (kubescape over
+# cert-manager-issuers are ClusterPolicy/ClusterIssuer only; cilium and
+# karpenter ride kube-system, so their overlays carry no Namespace
+# either). Config coverage of the actual workloads lives in
+# flux-containers (kubescape over
 # each chart's rendered manifests); here we scan every component overlay
 # except the named CR-only set.
 [lint-kustomize]
@@ -45,7 +47,7 @@ export KUBECONFIG=/nonexistent
 # pulls in ../common), and the entrypoint trees are ResourceSet only.
 for d in components/*/aws/ components/*/google/; do
   case "$(basename "$(dirname "$d")")" in
-    cert-manager-issuers|cilium|flux|kyverno-policies|rbac|secret-sync) continue ;;
+    cert-manager-issuers|cilium|flux|karpenter|kyverno-policies|rbac|secret-sync) continue ;;
   esac
   echo "lint-kustomize: kubescape scan $d"
   if [ -f .kubescape/exceptions.json ]; then

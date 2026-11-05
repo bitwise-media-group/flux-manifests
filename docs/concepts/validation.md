@@ -89,8 +89,8 @@ the CLI and keeps the empty render.
 
 kubeconform runs in strict mode against the default Kubernetes schemas, the
 [flux2-schemas](https://github.com/fluxcd-community/flux2-schemas) catalogue, and the JSON schemas in `tests/schemas/`
-for everything else (kyverno, cert-manager, Gateway API, Cilium, secret sync, flux-operator, GKE). Those are converted
-from upstream CRDs:
+for everything else (kyverno, cert-manager, Gateway API, Cilium, Karpenter, secret sync, flux-operator, GKE). Those are
+converted from upstream CRDs:
 
 ```sh
 curl <crd-yaml> | yq -o=json '.spec.versions[0].schema.openAPIV3Schema'
@@ -101,6 +101,6 @@ curl <crd-yaml> | yq -o=json '.spec.versions[0].schema.openAPIV3Schema'
 ## Other checks
 
 `make lint` adds, among the toolchain's standard checks, a kubescape configuration scan over every per-cloud component
-overlay. Overlays made only of custom resources kubescape can't map (cert-manager-issuers, cilium, flux,
+overlay. Overlays made only of custom resources kubescape can't map (cert-manager-issuers, cilium, flux, karpenter,
 kyverno-policies, rbac, secret-sync) are skipped; the workloads themselves are scanned in flux-containers, over each
 chart's rendered manifests. Accepted kubescape findings live in `.kubescape/exceptions.json`.

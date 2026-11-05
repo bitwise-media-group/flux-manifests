@@ -1,0 +1,150 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+
+# The cluster's default workload capacity: one EC2NodeClass and one
+# NodePool, both rendered from the KARPENTER_* cluster vars terraform
+# derives from var.karpenter.node_pool -- capacity policy stays where the
+# rest of the cluster shape lives, and this file only translates it.
+#
+# EC2NodeClass "default" is a CONTRACT, not just the default pool's class:
+# it is the one platform-owned node class (terraform's node role, the
+# cluster's discovery-tagged subnets and security group, the cluster's AMI
+# selection), and an application that needs dedicated capacity ships its
+# own NodePool referencing it by name rather than restating any of that.
+# Renaming it breaks every such NodePool.
+#
+# A ResourceSet, not plain manifests, for two reasons:
+#   - dependsOn: both kinds are CRDs the karpenter chart installs in this
+#     same reconcile (resourceset.yaml), and an apply that names an unknown
+#     kind fails the whole Kustomization. flux-operator holds this
+#     ResourceSet until the CRDs exist, then applies.
+#   - the vars are not all YAML-ready: lists arrive comma-joined (splitList,
+#     as PLATFORM_COMPONENTS already is), the AMI selector arrives as JSON
+#     (mustFromJson, as DEX_CLIENTS already is), and the optional ones are
+#     empty strings that must gate their key absent rather than render an
+#     empty value.
+#
+# No inputs: the template reads only substituted cluster vars, so it
+# renders once.
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSet
+metadata:
+  name: karpenter-nodes
+  namespace: kube-system
+spec:
+  dependsOn:
+    - apiVersion: apiextensions.k8s.io/v1
+      kind: CustomResourceDefinition
+      name: ec2nodeclasses.karpenter.k8s.aws
+    - apiVersion: apiextensions.k8s.io/v1
+      kind: CustomResourceDefinition
+      name: nodepools.karpenter.sh
+  resourcesTemplate: |
+    << $amiTerms := mustFromJson `${KARPENTER_AMI_SELECTOR_TERMS}` >>
+    << $families := compact (splitList "," "${KARPENTER_INSTANCE_FAMILIES}") >>
+    << $categories := compact (splitList "," "${KARPENTER_INSTANCE_CATEGORIES}") >>
+    << $sizes := compact (splitList "," "${KARPENTER_INSTANCE_SIZES}") >>
+    << $capacityTypes := compact (splitList "," "${KARPENTER_CAPACITY_TYPES}") >>
+    << $architectures := compact (splitList "," "${KARPENTER_ARCHITECTURES}") >>
+    ---
+    apiVersion: karpenter.k8s.aws/v1
+    kind: EC2NodeClass
+    metadata:
+      name: default
+    spec:
+      # Terraform's karpenter node role: Karpenter mints and manages the
+      # instance profile for it (the controller policy grants exactly that
+      # and PassRole on this one role).
+      role: ${KARPENTER_NODE_ROLE}
+      # The AMI selection arrives whole: an alias term (al2023@latest by
+      # default) or, for a custom image, an id term or one name+owner term
+      # per owner. An alias implies its family; anything else needs
+      # amiFamily, which terraform publishes (AL2023) exactly then.
+      << if ne "${KARPENTER_AMI_FAMILY}" "" >>
+      amiFamily: ${KARPENTER_AMI_FAMILY}
+      << end >>
+      amiSelectorTerms: << toJson $amiTerms >>
+      # The subnets and security group terraform tags with the cluster's
+      # discovery tag (karpenter.sh/discovery=<cluster>): the cluster
+      # security group, and every node AND public subnet when
+      # network.manage_discovery_tags is on.
+      subnetSelectorTerms:
+        - tags:
+            ${CLUSTER_DISCOVERY_TAG}: ${CLUSTER_DISCOVERY_VALUE}
+      securityGroupSelectorTerms:
+        - tags:
+            ${CLUSTER_DISCOVERY_TAG}: ${CLUSTER_DISCOVERY_VALUE}
+      # The root volume, sized by terraform (KARPENTER_NODE_DISK_GIB).
+      # AL2023 boots from /dev/xvda; a Bottlerocket alias keeps its OS
+      # there and its data (images, containers) on /dev/xvdb, which is the
+      # volume worth sizing.
+      blockDeviceMappings:
+        - deviceName: << ternary "/dev/xvdb" "/dev/xvda" (hasPrefix "bottlerocket@" "${KARPENTER_AMI_ALIAS}") >>
+          ebs:
+            volumeSize: ${KARPENTER_NODE_DISK_GIB}Gi
+            volumeType: gp3
+            encrypted: true
+            deleteOnTermination: true
+      # IMDSv2 only, one hop: pods cannot reach the node's credentials
+      # (Karpenter's own default, restated so it survives a default change).
+      metadataOptions:
+        httpEndpoint: enabled
+        httpProtocolIPv6: disabled
+        httpPutResponseHopLimit: 1
+        httpTokens: required
+    ---
+    apiVersion: karpenter.sh/v1
+    kind: NodePool
+    metadata:
+      name: ${KARPENTER_NODE_POOL_NAME}
+    spec:
+      template:
+        spec:
+          nodeClassRef:
+            group: karpenter.k8s.aws
+            kind: EC2NodeClass
+            name: default
+          # Nothing schedules on a new node until Cilium can give it an
+          # address: the same bootstrap taint terraform puts on its managed
+          # node groups, removed by the Cilium operator once the agent is
+          # ready. A startup taint, so Karpenter expects it and does not
+          # treat the node as unschedulable for the pods it launched it for.
+          startupTaints:
+            - key: node.cilium.io/agent-not-ready
+              value: "true"
+              effect: NoExecute
+          expireAfter: "${KARPENTER_EXPIRE_AFTER}"
+          requirements:
+            - key: kubernetes.io/os
+              operator: In
+              values: ["linux"]
+            - key: kubernetes.io/arch
+              operator: In
+              values: << toJson $architectures >>
+            - key: karpenter.sh/capacity-type
+              operator: In
+              values: << toJson $capacityTypes >>
+            << if $categories >>
+            - key: karpenter.k8s.aws/instance-category
+              operator: In
+              values: << toJson $categories >>
+            << end >>
+            << if $families >>
+            - key: karpenter.k8s.aws/instance-family
+              operator: In
+              values: << toJson $families >>
+            << end >>
+            << if $sizes >>
+            - key: karpenter.k8s.aws/instance-size
+              operator: In
+              values: << toJson $sizes >>
+            << end >>
+      # Ceilings only: Karpenter scales from zero on pending pods, and the
+      # cluster's floor is the system node group.
+      limits:
+        cpu: "${KARPENTER_CPU_LIMIT}"
+        memory: "${KARPENTER_MEMORY_LIMIT}"
+        nodes: "${KARPENTER_MAX_NODES}"
+      disruption:
+        consolidationPolicy: ${KARPENTER_CONSOLIDATION_POLICY}
+        consolidateAfter: "${KARPENTER_CONSOLIDATE_AFTER}"

@@ -71,6 +71,7 @@ Gateway and RBAC. They differ where the clouds do:
 | load balancer    | [aws-load-balancer-controller](../components/aws-load-balancer-controller.md) → NLB on reserved EIPs | Google-managed global external ALB          |
 | Gateway API CRDs | vendored in [gateway](../components/gateway.md), gated by `GATEWAY_API_CRDS`                         | shipped with GKE                            |
 | secret sync      | [secret-sync](../components/secret-sync.md) controller + Secrets Store CSI add-on                    | GKE Integrated Secret Synchronization       |
+| workload nodes   | [karpenter](../components/karpenter.md): `EC2NodeClass default` + NodePools                          | GKE node auto-provisioning (terraform)      |
 | registry         | ECR (`ECRArtifactTag`, `OCI_PROVIDER=aws`)                                                           | Artifact Registry (`GARArtifactTag`, `gcp`) |
 | DNS              | Route53, optional split-horizon private zone                                                         | Cloud DNS                                   |
 

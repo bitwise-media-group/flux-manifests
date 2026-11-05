@@ -1,0 +1,132 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+
+# Karpenter: node auto-provisioning for workload capacity. Terraform
+# (terraform-aws-eks-flux's karpenter.tf) owns everything AWS-side -- the
+# controller and node IAM roles, the SQS interruption queue and its
+# EventBridge rules, the discovery tags, and the Pod Identity association
+# that hands the controller its credentials -- and publishes the wiring as
+# KARPENTER_* cluster vars. This component owns the chart and the
+# cluster-side objects (resourceset-nodes.yaml), so terraform never applies
+# a CR whose CRD flux has not installed yet.
+#
+# kube-system, not a namespace of its own: the Pod Identity association
+# binds <workload_identity.karpenter.namespace>/<service_account>, and the
+# namespace half is not a cluster var -- it is terraform's default,
+# kube-system, which is also upstream's recommended home. The ServiceAccount
+# name does arrive as a var (KARPENTER_SERVICE_ACCOUNT), so a renamed
+# account follows terraform without a manifests change.
+#
+# The chart is the full karpenter chart, whose crds/ carry the karpenter.sh
+# and karpenter.k8s.aws CRDs. Helm alone installs crds/ once and never
+# upgrades them; CreateReplace on both install and upgrade keeps them in
+# step with the controller, which is what upstream's separate karpenter-crd
+# chart exists to do -- so that chart is not mirrored.
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSet
+metadata:
+  name: karpenter
+  namespace: kube-system
+spec:
+  inputsFrom:
+    - kind: ResourceSetInputProvider
+      name: karpenter
+  # Everything rides resourcesTemplate: the verify block's SHAPE follows the
+  # signing mode (keyed clusters verify against the public-key Secret
+  # rendered here from COSIGN_PUBLIC_KEY, keyless against the Fulcio
+  # identities). Conditional membership of a map needs a text template.
+  resourcesTemplate: |
+    << $keyed := ne "${SIGNED_IDENTITY_KMS_KEY:=}" "" >>
+    << if ne "${COSIGN_PUBLIC_KEY:=}" "" >>
+    ---
+    # The signing key's public half (published base64-encoded by terraform,
+    # so it drops straight into data); source-controller verifies the chart
+    # artifact against it in keyed mode. Named for this component rather
+    # than the usual cosign-pub: kube-system is shared with the cilium
+    # component, whose ResourceSet already owns a cosign-pub here, and two
+    # ResourceSets must not both own (and prune) one object.
+    apiVersion: v1
+    kind: Secret
+    metadata:
+      name: cosign-pub-karpenter
+      namespace: kube-system
+    type: Opaque
+    data:
+      cosign.pub: ${COSIGN_PUBLIC_KEY:=}
+    << end >>
+    ---
+    apiVersion: source.toolkit.fluxcd.io/v1
+    kind: OCIRepository
+    metadata:
+      name: karpenter
+      namespace: kube-system
+    spec:
+      interval: 1h
+      url: oci://${PLATFORM_REGISTRY}/charts/karpenter
+      provider: "${OCI_PROVIDER}"
+      ref:
+        tag: << inputs.tag >>
+      verify:
+        provider: cosign
+        << if $keyed >>
+        # Keyed: verified against the KMS signing key's public half.
+        secretRef:
+          name: cosign-pub-karpenter
+        << else >>
+        # Keyless: the chart must carry a Fulcio certificate from the
+        # flux-containers publish workflow. Single-quoted: the values are
+        # regexes whose backslashes a double-quoted scalar would mangle.
+        matchOIDCIdentity:
+          - issuer: '${SIGNED_IDENTITY_ISSUER}'
+            subject: '${SIGNED_IDENTITY_CHARTS}'
+        << end >>
+    ---
+    apiVersion: helm.toolkit.fluxcd.io/v2
+    kind: HelmRelease
+    metadata:
+      name: karpenter
+      namespace: kube-system
+    spec:
+      interval: 30m
+      timeout: 5m
+      chartRef:
+        kind: OCIRepository
+        name: karpenter
+        namespace: kube-system
+      # The CRDs ship in the chart's crds/ directory: replace them on every
+      # upgrade too, not just create them on install.
+      install:
+        crds: CreateReplace
+      upgrade:
+        crds: CreateReplace
+      values:
+        controller:
+          # Chart and controller release in lockstep (the chart pins the
+          # controller by tag AND digest), so only the repository is
+          # remapped to the mirror: the mirror copies by digest, so the
+          # chart's own tag@digest names the mirrored image.
+          image:
+            repository: ${CONTAINER_REGISTRY}/images/public.ecr.aws/karpenter/controller
+          # Pod Identity hands out credentials but not a region, and the
+          # SDK's IMDS fallback is unreliable under the hardened node
+          # metadata settings -- pin the region explicitly.
+          env:
+            - name: AWS_REGION
+              value: '${AWS_REGION}'
+        settings:
+          clusterName: ${CLUSTER_NAME}
+          # Spot interruption, rebalance and instance-health events, routed
+          # to the queue by terraform's EventBridge rules: Karpenter drains
+          # an affected node before EC2 reclaims it.
+          interruptionQueue: ${KARPENTER_INTERRUPTION_QUEUE}
+        # The ServiceAccount terraform's Pod Identity association binds
+        # (workload_identity.karpenter.service_account) -- the chart's
+        # default is the release name, which only matches by accident.
+        serviceAccount:
+          name: ${KARPENTER_SERVICE_ACCOUNT}
+        # The controller runs on the terraform-managed system node group
+        # like every platform controller, never on capacity it provisions
+        # itself (the chart's own affinity already keeps it off
+        # karpenter.sh/nodepool nodes; this pins it to the right ones).
+        nodeSelector:
+          role: system

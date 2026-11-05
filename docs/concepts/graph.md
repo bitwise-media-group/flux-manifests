@@ -19,6 +19,7 @@ kyverno ──► kyverno-policies ──┬──► cert-manager ──► cer
                                ├──► flux                                               │      │
                                ├──► secret-sync (aws) ─────────────────────────────────┴──────┘
                                ├──► aws-load-balancer-controller (aws)
+                               ├──► karpenter (aws)
                                └──► arc
 gateway-api-crds (aws, GATEWAY_API_CRDS) ──► cilium (aws)          rbac (no dependencies)
 ```
@@ -34,7 +35,7 @@ Every emitted Kustomization uses `wait: true`, so a dependant only starts once e
 The **core tier** has no election gate and deploys on every cluster:
 
 - **both clouds**: kyverno, kyverno-policies, flux, cert-manager, cert-manager-issuers, external-dns, gateway, rbac
-- **aws only**: cilium, aws-load-balancer-controller, secret-sync
+- **aws only**: cilium, aws-load-balancer-controller, karpenter, secret-sync
 
 The **electable tier** deploys only when named in the `PLATFORM_COMPONENTS` cluster variable:
 

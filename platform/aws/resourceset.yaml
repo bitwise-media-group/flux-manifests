@@ -12,10 +12,10 @@
 #
 # Two tiers. The core tier (kyverno, kyverno-policies, flux, cilium,
 # cert-manager, cert-manager-issuers, aws-load-balancer-controller,
-# external-dns, gateway, rbac, secret-sync) has no election gate and is
-# emitted on every cluster; the electable tier (dex, flux-web, arc)
-# deploys only when named in the PLATFORM_COMPONENTS cluster var - short
-# names, comma-separated. Unset elects dex and flux-web; the reserved
+# karpenter, external-dns, gateway, rbac, secret-sync) has no election
+# gate and is emitted on every cluster; the electable tier (dex,
+# flux-web, arc) deploys only when named in the PLATFORM_COMPONENTS
+# cluster var - short names, comma-separated. Unset elects dex and flux-web; the reserved
 # name "none" (what terraform publishes for an empty election) matches
 # nothing. dex is not elected by hand: the cluster module includes it
 # exactly when its sso toggle is on.
@@ -23,6 +23,10 @@
 # secret-sync is unconditional on aws: the platform cannot know which
 # applications consume out-of-band secrets, and the machinery must exist
 # before any of them renders a SecretSync.
+#
+# karpenter is unconditional on aws too: terraform always provisions its
+# IAM, queue and NodePool shape, and the system node group is only the
+# platform's floor -- without Karpenter no workload capacity exists.
 #
 # Each entry's ref (<NAME>_MANIFESTS_REF, a caller extra) pins that one
 # component to a tag; empty follows the cluster's release channel
@@ -54,6 +58,7 @@ spec:
       (dict "name" "cert-manager" "timeout" "10m" "dependsOn" (list "kyverno-policies") "when" (list) "ref" "${CERT_MANAGER_MANIFESTS_REF:=}")
       (dict "name" "cert-manager-issuers" "timeout" "5m" "dependsOn" (list "cert-manager") "when" (list) "ref" "${CERT_MANAGER_ISSUERS_MANIFESTS_REF:=}")
       (dict "name" "aws-load-balancer-controller" "timeout" "5m" "dependsOn" (list "kyverno-policies") "when" (list) "ref" "${AWS_LOAD_BALANCER_CONTROLLER_MANIFESTS_REF:=}")
+      (dict "name" "karpenter" "timeout" "10m" "dependsOn" (list "kyverno-policies") "when" (list) "ref" "${KARPENTER_MANIFESTS_REF:=}")
       (dict "name" "external-dns" "timeout" "5m" "dependsOn" (list "kyverno-policies") "when" (list) "ref" "${EXTERNAL_DNS_MANIFESTS_REF:=}")
       (dict "name" "gateway" "timeout" "5m" "dependsOn" (list "cert-manager-issuers") "when" (list) "ref" "${GATEWAY_MANIFESTS_REF:=}")
       (dict "name" "rbac" "timeout" "5m" "dependsOn" (list) "when" (list) "ref" "${RBAC_MANIFESTS_REF:=}")

@@ -55,6 +55,7 @@ nav = [
     { "cert-manager" = "components/cert-manager.md" },
     { "cert-manager-issuers" = "components/cert-manager-issuers.md" },
     { "aws-load-balancer-controller" = "components/aws-load-balancer-controller.md" },
+    { "karpenter" = "components/karpenter.md" },
     { "external-dns" = "components/external-dns.md" },
     { "gateway" = "components/gateway.md" },
     { "rbac" = "components/rbac.md" },

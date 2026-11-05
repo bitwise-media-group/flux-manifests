@@ -1,0 +1,20 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSetInputProvider
+metadata:
+  name: karpenter
+  namespace: kube-system
+  annotations:
+    fluxcd.controlplane.io/reconcileEvery: 30m
+spec:
+  type: "${ARTIFACT_TAG_PROVIDER}"
+  url: oci://${PLATFORM_REGISTRY}/charts/karpenter
+  filter:
+    # Floor matches the mirror's own versionConstraint (flux-containers'
+    # charts/karpenter/manifest.yaml, >=1.15.1 <2.0.0) -- raising it here
+    # can never pick a tag the mirror doesn't carry. Constraint order
+    # matters: kustomize drops the quotes, so the default must not start
+    # with '>' or YAML reads it as a folded block scalar.
+    semver: "${KARPENTER_SEMVER:=<2.0.0 >=1.15.1}"
+    limit: 1

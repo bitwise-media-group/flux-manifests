@@ -118,6 +118,7 @@ the chart version follows the mirror like every other component.
 | cilium                       | `cilium`                                               | `CILIUM_SEMVER`                                    |
 | cert-manager                 | `cert-manager`                                         | `CERT_MANAGER_SEMVER`                              |
 | aws-load-balancer-controller | `aws-load-balancer-controller`                         | `AWS_LOAD_BALANCER_CONTROLLER_SEMVER`              |
+| karpenter                    | `karpenter`                                            | `KARPENTER_SEMVER`                                 |
 | external-dns                 | `external-dns` + tracked image                         | `EXTERNAL_DNS_SEMVER`, `EXTERNAL_DNS_IMAGE_SEMVER` |
 | secret-sync                  | `secrets-store-sync-controller`                        | `SECRET_SYNC_SEMVER`                               |
 | dex                          | `dex` + tracked image                                  | `DEX_SEMVER`, `DEX_IMAGE_SEMVER`                   |

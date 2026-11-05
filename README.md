@@ -54,6 +54,7 @@ kyverno ──► kyverno-policies ──┬──► cert-manager ──► cer
                                ├──► flux                                               │      │
                                ├──► secret-sync (aws) ─────────────────────────────────┴──────┘
                                ├──► aws-load-balancer-controller (aws)
+                               ├──► karpenter (aws)
                                └──► arc
 gateway-api-crds (aws, GATEWAY_API_CRDS) ──► cilium (aws)          rbac (no dependencies)
 ```

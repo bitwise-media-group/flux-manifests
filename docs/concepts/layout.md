@@ -10,12 +10,12 @@ components/<name>/{aws,google}/   the per-cloud overlay (resources: ../common + 
 Every component ships one overlay per cloud it supports, and the entrypoint's Kustomization for it always points at
 `./aws` or `./google` inside the component's own image. Four shapes cover every component:
 
-| shape                       | components                                                    | overlay contents                         |
-| --------------------------- | ------------------------------------------------------------- | ---------------------------------------- |
-| common tier verbatim        | kyverno, cert-manager, flux, rbac, arc                        | `resources: [../common]`                 |
-| common tier + cloud dialect | dex, flux-web                                                 | `../common` plus secret sync, edge files |
-| one cloud only              | cilium, aws-load-balancer-controller, secret-sync (aws)       | the whole component, no `common/`        |
-| per-cloud, no shared tier   | kyverno-policies, cert-manager-issuers, external-dns, gateway | each cloud's own manifests               |
+| shape                       | components                                                         | overlay contents                         |
+| --------------------------- | ------------------------------------------------------------------ | ---------------------------------------- |
+| common tier verbatim        | kyverno, cert-manager, flux, rbac, arc                             | `resources: [../common]`                 |
+| common tier + cloud dialect | dex, flux-web                                                      | `../common` plus secret sync, edge files |
+| one cloud only              | cilium, aws-load-balancer-controller, karpenter, secret-sync (aws) | the whole component, no `common/`        |
+| per-cloud, no shared tier   | kyverno-policies, cert-manager-issuers, external-dns, gateway      | each cloud's own manifests               |
 
 The last row is components whose every file differs by cloud (a KMS URI scheme, a DNS solver, a Gateway class), so
 there's nothing to share.

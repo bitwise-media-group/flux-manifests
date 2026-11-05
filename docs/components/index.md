@@ -13,6 +13,7 @@ by the entrypoint as the Kustomization `<name>` in `flux-system`. The graph and 
 | [cert-manager](cert-manager.md)                                 | core      | both   | kyverno-policies                                      | `cert-manager`                 | chart `cert-manager`                                                                     |
 | [cert-manager-issuers](cert-manager-issuers.md)                 | core      | both   | cert-manager                                          | (cluster-scoped)               | ClusterIssuers `letsencrypt-prod`, `letsencrypt-staging`                                 |
 | [aws-load-balancer-controller](aws-load-balancer-controller.md) | core      | aws    | kyverno-policies                                      | `aws-load-balancer-controller` | chart `aws-load-balancer-controller`                                                     |
+| [karpenter](karpenter.md)                                       | core      | aws    | kyverno-policies                                      | `kube-system`                  | chart `karpenter`, EC2NodeClass `default`, the default NodePool                          |
 | [external-dns](external-dns.md)                                 | core      | both   | kyverno-policies                                      | `external-dns`                 | chart `external-dns` + tracked image                                                     |
 | [gateway](gateway.md)                                           | core      | both   | cert-manager-issuers                                  | `gateway`                      | Gateway `platform`, Certificate `platform-wildcard`                                      |
 | [rbac](rbac.md)                                                 | core      | both   |                                                       | (cluster-scoped)               | ClusterRoleBindings for the platform groups                                              |
@@ -37,6 +38,6 @@ specific to each.
 
 ## Common to every component
 
-- Its Kustomization's timeout comes from the entrypoint (`10m` for kyverno and cert-manager, `15m` for cilium, `5m` for
-  the rest), with `wait: true`, `prune: true`, a 30-minute interval and a 2-minute retry.
+- Its Kustomization's timeout comes from the entrypoint (`10m` for kyverno, cert-manager and karpenter, `15m` for
+  cilium, `5m` for the rest), with `wait: true`, `prune: true`, a 30-minute interval and a 2-minute retry.
 - `<NAME>_MANIFESTS_REF` pins its manifests image to a tag; empty, it follows `FLUX_SYNC_CHANNEL`.
