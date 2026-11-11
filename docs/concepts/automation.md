@@ -29,10 +29,10 @@ The publish flow and its credentials are covered in [Releases & channels](releas
 
 ## Housekeeping
 
-| workflow              | what it does                                                                                  |
-| --------------------- | --------------------------------------------------------------------------------------------- |
-| `renovate.yaml`       | hourly self-hosted Renovate run: action pins, the toolchain submodule, the mise tool pins     |
-| `add-to-project.yaml` | adds new issues and PRs to the org Roadmap project (managed from github-settings; don't edit) |
+| workflow              | what it does                                                                                   |
+| --------------------- | ---------------------------------------------------------------------------------------------- |
+| `renovate.yaml`       | self-hosted Renovate, hourly and event-driven: action pins, the toolchain submodule, mise pins |
+| `add-to-project.yaml` | adds new issues and PRs to the org Roadmap project (managed from github-settings; don't edit)  |
 
 Renovate doesn't touch chart versions here: components follow the mirrored charts at runtime through their tag
 providers, so a chart bump is a [flux-containers](https://oss.bitwisemedia.uk/flux-containers/) change.
