@@ -9,12 +9,13 @@
 #      platform entrypoint (platform/<tree>)
 #   2. substitute cluster-vars the way the Kustomizations do (postBuild),
 #      faithfully to the controller's roundtrip -- so an empty var that
-#      would become null on a cluster becomes null (and fails) here
+#      would become null on a cluster becomes null (and fails) here (the
+#      toolchain's flux-substitute.sh)
 #   3. render ResourceSets with sample inputs (flux-operator CLI), the
 #      platform entrypoint included (every component elected, and the
 #      reserved "none" election)
 #   4. kubeconform the results against Flux + flux-operator + component CRD
-#      schemas
+#      schemas (the toolchain's kubeconform.sh)
 # plus the structural guards that keep the layout honest:
 #   - components/*/common may not branch on cloud, and may reference a var
 #     published by only one cloud's module solely through a := default
@@ -27,10 +28,15 @@
 #     resolves to a Kustomization something emits
 #   - the core tier is election-independent: the "none" election still
 #     emits every non-electable component
+#   - every component is published: patchy.yaml's build.manifests lists
+#     each components/<name>, and the platform entrypoint last
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BUILD="$ROOT/.build"
+# The containers archetype's Flux helpers: postBuild substitution with the
+# strict check and null guard, and kubeconform with the house schema catalog.
+HELPERS="$ROOT/.mise/archetypes/containers/scripts"
 rm -rf "$BUILD" && mkdir -p "$BUILD"
 
 command -v kustomize >/dev/null || { echo "kustomize not found" >&2; exit 1; }
@@ -70,84 +76,16 @@ shipped_components() { # shipped_components <tree>
   find "$ROOT/components" -mindepth 2 -maxdepth 2 -type d -name "$1" -exec dirname {} + | while IFS= read -r dir; do basename "$dir"; done | sort -u
 }
 
-# kustomize-controller substitutes in STRICT mode: a bare ${VAR} fails the
-# whole Kustomization on any cluster whose cluster-vars never publishes VAR
-# (a ${VAR:=default} never does -- := satisfies strict even when unset).
-# Mirror that here so each tree's passes, run under only that cloud's env,
-# fail the same way the cluster would.
-check_strict() { # check_strict <in-file>
-  local var
-  # shellcheck disable=SC2016 # the dollar-brace is the grep pattern, not an expansion
-  while IFS= read -r var; do
-    # ${!var+x}: set-ness via indirect expansion ([[ -v ]] needs bash 4+,
-    # and macOS ships 3.2)
-    [[ -n "${!var+x}" ]] || { echo "strict substitution: \${$var} in $1 but $var is not set in the env" >&2; exit 1; }
-  done < <(grep -oE '\$\{[A-Z][A-Z0-9_]*\}' "$1" | tr -d '${}' | sort -u)
-}
-
-# After substitution, no path that held a ${VAR}-bearing string may hold
-# null: that is exactly the cluster failure mode where the controller's
-# roundtrip strips redundant quotes and an empty value re-parses as null
-# (helm schemas and CRDs then reject the key). Fix at the source per the
-# empty-var convention: gate the key absent, template-quote (`| quote`),
-# or move the value into a resourcesTemplate block scalar.
-null_guard() { # null_guard <pre-file> <post-file>
-  local pre nulls hits
-  # shellcheck disable=SC2016 # yq expressions, not shell expansions
-  pre="$(yq ea '.. | select(tag == "!!str") | select(test("\$\{[A-Z]")) | ([document_index] + path | join("/"))' "$1" | sort -u)"
-  nulls="$(yq ea '.. | select(tag == "!!null") | ([document_index] + path | join("/"))' "$2" | sort -u)"
-  hits="$(comm -12 <(printf '%s\n' "$pre") <(printf '%s\n' "$nulls") | grep -v '^$' || true)"
-  if [[ -n "$hits" ]]; then
-    {
-      echo "null substitution in $2 -- these \${VAR}-bearing scalars became null (doc/path):"
-      printf '%s\n' "$hits" | sed 's/^/  /'
-      echo "an empty var in a bare quoted scalar round-trips to null on the cluster;"
-      echo "gate the key absent, use << \"\${VAR:=}\" | quote >>, or move it into a"
-      echo "resourcesTemplate block (see README: the empty-var convention)"
-    } >&2
-    exit 1
-  fi
-}
-
 # Substitute cluster vars the way kustomize-controller's postBuild does on a
-# real cluster: the resource is parsed, re-serialized (AsYAML -- redundant
-# quotes drop, styles normalize), TEXTUALLY envsubst-ed, and re-parsed.
-# Faithfulness matters: substituting structurally (into parsed string
-# values) would preserve string types that the cluster loses, hiding the
-# empty-var null bug class this harness exists to catch. yq's envsubst also
-# eats bare $VAR (dex's $-refs, Go template $variables) where the
-# controller only substitutes the braced form -- shield those behind a
-# sentinel so the render matches the cluster.
+# real cluster: strict (a bare ${VAR} that this cloud's env never sets
+# fails, as it would fail the Kustomization), through the controller's
+# parse/re-serialize/substitute/re-parse round trip, then the null guard (no
+# ${VAR}-bearing scalar may substitute to null -- fix at the source per the
+# empty-var convention: gate the key absent, template-quote (`| quote`), or
+# move the value into a resourcesTemplate block scalar). Each tree's passes
+# run under only that cloud's env, so they fail the way its cluster would.
 substitute() { # substitute <in-file> <out-file>
-  check_strict "$1"
-  # shellcheck disable=SC2016 # yq expression
-  yq ea '(.. | select(kind == "scalar")) style=""' "$1" > "$2.norm"
-  # shellcheck disable=SC2016 # ${1} and $$ are yq syntax; single quotes are deliberate
-  IN_FILE="$2.norm" yq -n 'load_str(strenv(IN_FILE)) | sub("\$([^{])"; "@BARE_DOLLAR@${1}") | envsubst | sub("@BARE_DOLLAR@"; "$$")' > "$2"
-  null_guard "$2.norm" "$2"
-  rm -f "$2.norm"
-}
-
-# The null guard is the regression fence for a bug class local rendering
-# used to hide; prove it still fires before trusting a green run.
-null_guard_selftest() {
-  local dir="$BUILD/selftest"
-  mkdir -p "$dir"
-  cat > "$dir/canary.yaml" <<'YAML'
-canary:
-  trip: "${VALIDATE_SELFTEST_EMPTY}"
-  control: "${VALIDATE_SELFTEST_PRESENT}"
-YAML
-  export VALIDATE_SELFTEST_EMPTY="" VALIDATE_SELFTEST_PRESENT="present"
-  if (substitute "$dir/canary.yaml" "$dir/canary.out.yaml") 2> /dev/null; then
-    echo "self-test: null_guard did NOT trip on an empty-var quoted scalar -- the guard has rotted, aborting" >&2
-    exit 1
-  fi
-  export VALIDATE_SELFTEST_EMPTY="non-empty"
-  substitute "$dir/canary.yaml" "$dir/canary.out.yaml" \
-    || { echo "self-test: substitute failed its positive control" >&2; exit 1; }
-  unset VALIDATE_SELFTEST_EMPTY VALIDATE_SELFTEST_PRESENT
-  rm -rf "$dir"
+  "$HELPERS/flux-substitute.sh" "$1" "$2"
 }
 
 # components/*/common serves both clusters verbatim: no cloud branching,
@@ -335,8 +273,28 @@ check_election_independent() { # check_election_independent <tree> <render-dir>
   [[ "$bad" -eq 0 ]] || exit 1
 }
 
+# patchy.yaml lists what `patchy build` publishes, one entry per artifact, in
+# publish order. A component missing there would ship in the tree but never
+# reach a registry, so every components/<name> must have an entry, and the
+# entrypoint must come last so it never references a component build that is
+# not there yet.
+check_publish_complete() {
+  local listed name bad=0
+  listed="$(yq '.build.manifests[].path' "$ROOT/patchy.yaml")"
+  for name in $(find "$ROOT/components" -mindepth 1 -maxdepth 1 -type d -exec basename {} \; | sort); do
+    in_set "components/$name" "$listed" || { echo "publish completeness: components/$name has no build.manifests entry in patchy.yaml" >&2; bad=1; }
+  done
+  [[ "$(printf '%s\n' "$listed" | tail -n 1)" == "platform" ]] || { echo "publish completeness: the platform entrypoint must be the last build.manifests entry in patchy.yaml" >&2; bad=1; }
+  [[ "$bad" -eq 0 ]] || exit 1
+}
+
+# The null guard is the regression fence for a bug class local rendering
+# used to hide; prove it still fires before trusting a green run.
 echo ">> null-guard self-test"
-null_guard_selftest
+"$HELPERS/flux-substitute.sh" --self-test
+
+echo ">> publish completeness"
+check_publish_complete
 
 echo ">> common neutrality + per-tree dead-default guards"
 check_common_neutral
@@ -366,16 +324,13 @@ for tree in google aws; do
 done
 
 echo ">> kubeconform"
-# Component CRD schemas are vendored (converted from upstream CRDs); refresh with:
+# Component CRD schemas are vendored under tests/schemas (converted from
+# upstream CRDs); refresh with:
 #   curl <crd-yaml> | yq -o=json '.spec.versions[0].schema.openAPIV3Schema'
-# CustomResourceDefinition is skipped: the standalone schema catalogs carry no
-# schema for it (the vendored gateway CRDs are upstream-generated and arrive
-# verbatim -- validating them here would only re-check kubebuilder's output).
-kubeconform -strict -summary \
-  -skip CustomResourceDefinition \
-  -schema-location default \
-  -schema-location "https://raw.githubusercontent.com/fluxcd-community/flux2-schemas/main/{{ .ResourceKind }}{{ .KindSuffix }}.json" \
-  -schema-location "$ROOT/tests/schemas/{{ .ResourceKind }}-{{ .Group }}-{{ .ResourceAPIVersion }}.json" \
+# CustomResourceDefinition is skipped (kubeconform.sh's default): the
+# standalone schema catalogs carry no schema for it, and the vendored gateway
+# CRDs are upstream-generated and arrive verbatim.
+KUBECONFORM_SCHEMAS="$ROOT/tests/schemas" "$HELPERS/kubeconform.sh" \
   "$BUILD"/*/component-*.yaml "$BUILD"/*/rendered-*.yaml
 
 echo ">> validation clean"

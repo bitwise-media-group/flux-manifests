@@ -41,13 +41,17 @@ The values the `flux` release renders are how the platform holds every cluster's
   rather than a default silently pointing the cluster at the wrong tree. Re-asserting them here is how a running cluster
   is [re-pointed](../reference/operations.md#re-pointing-a-cluster).
 
-Three kustomize patches ride on the instance:
+Four kustomize patches ride on the instance:
 
 1. **Controllers on the system pool**, matching the operator.
 2. **Signature verification on the sync source.** FluxInstance's `spec.sync` has no verify field, so a patch adds one to
    the generated `flux-system` OCIRepository: the `cosign-pub` Secret in KMS mode, otherwise the manifests identity
    `SIGNED_IDENTITY_MANIFESTS`.
-3. **`DisableChartDigestTracking=true` on helm-controller.** helm-controller normally appends the OCI digest to chart
+3. **The channel as a semver range.** FluxInstance renders `sync.ref` as a tag, but no tag ever moves: a channel is its
+   newest immutable build. A patch replaces the generated OCIRepository's `ref` with `semver: ${FLUX_SYNC_SEMVER}` and,
+   for edge, `semverFilter: ${FLUX_SYNC_SEMVER_FILTER}`, the same patch the cluster module bootstraps with. See
+   [Releases & channels](../concepts/releases.md).
+4. **`DisableChartDigestTracking=true` on helm-controller.** helm-controller normally appends the OCI digest to chart
    versions as build metadata (`0.56.0+<digest>`). That synthetic version lands in the helm release storage, which
    terraform shares by name and would read back as a chart tag that doesn't exist. Every chart tag here comes from a
    semver input provider, and the mirror never re-pushes a tag, so the digest isn't needed.
@@ -65,7 +69,7 @@ google, Pod Identity on aws). The operator's identity is what every component's 
 ## Cluster variables
 
 `PLATFORM_REGISTRY`, `CONTAINER_REGISTRY`, `ARTIFACT_TAG_PROVIDER`, `OCI_PROVIDER`, `FLUX_SYNC_URL`,
-`FLUX_SYNC_CHANNEL`, `PLATFORM_TREE`, `SIGNED_IDENTITY_*`, `FLUX_SEMVER`.
+`FLUX_SYNC_CHANNEL`, `FLUX_SYNC_SEMVER`, `FLUX_SYNC_SEMVER_FILTER`, `PLATFORM_TREE`, `SIGNED_IDENTITY_*`, `FLUX_SEMVER`.
 
 ## Source
 

@@ -8,7 +8,7 @@ A cluster can only reconcile the platform once the registry holds everything it 
 
 1. every chart and image, published by [flux-containers](https://oss.bitwisemedia.uk/flux-containers/);
 2. every `manifests/<component>` image and the `manifests/platform` entrypoint, published by this repository;
-3. a published channel for the cluster to follow. The first cluster apply needs `staging` or `stable` to exist, unless
+3. a published channel for the cluster to follow. The first cluster apply needs a release (`stable`) to exist, unless
    the cluster follows `edge`.
 
 ## Enforcing the signature policy

@@ -118,7 +118,7 @@ needs. -#}
                         <div class="fm-run"><span class="t">render</span><span class="d">every ResourceSet with fixtures</span><span class="ok">✓</span></div>
                         <div class="fm-run"><span class="t">graph</span><span class="d">entrypoint complete · core election-free</span><span class="ok">✓</span></div>
                         <div class="fm-run"><span class="t">schema</span><span class="d">kubeconform · flux + vendored CRDs</span><span class="ok">✓</span></div>
-                        <div class="fm-pane__sep fm-ok">→ merge, and publish-edge.yaml signs it keylessly</div>
+                        <div class="fm-pane__sep fm-ok">→ merge, and release.yaml signs it keylessly</div>
                     </div>
                 </div>
             </div>
@@ -143,7 +143,7 @@ needs. -#}
         <div class="fm-stats">
             <div class="fm-stat"><b>{{ fm_components | length }}</b><small>platform components</small></div>
             <div class="fm-stat"><b>2</b><small>clouds — aws &amp; google</small></div>
-            <div class="fm-stat"><b class="fm-ink">3</b><small>channels — edge, staging, stable</small></div>
+            <div class="fm-stat"><b class="fm-ink">2</b><small>channels — edge, stable</small></div>
             <div class="fm-stat"><b class="fm-ink">0</b><small>per-cluster edits</small></div>
         </div>
     </section>
@@ -304,7 +304,7 @@ needs. -#}
                 <div class="fm-step__body">
                     <div class="fm-step__num">01</div>
                     <h3>Merge</h3>
-                    <p>Every merge to main is published as <code>edge</code>: dev clusters validate trunk continuously.</p>
+                    <p>Every merge to main is published as an immutable <code>edge</code> build of the next release: dev clusters validate trunk continuously.</p>
                     <a class="fm-step__alt" href="{{ 'concepts/releases/' | url }}">Releases &amp; channels
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
                             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -325,8 +325,8 @@ needs. -#}
             <div class="fm-step">
                 <div class="fm-step__body">
                     <div class="fm-step__num">02</div>
-                    <h3>Release</h3>
-                    <p>release-please cuts <code>vX.Y.Z</code>; the publish workflow pushes and signs every image and moves <code>staging</code>.</p>
+                    <h3>Edge</h3>
+                    <p>The release workflow builds, pushes and signs every artifact as <code>X.Y.Z-edge.&lt;timestamp&gt;.g&lt;commit&gt;</code>.</p>
                     <a class="fm-step__alt" href="{{ 'concepts/automation/' | url }}">CI &amp; automation
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
                             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -337,7 +337,7 @@ needs. -#}
                 </div>
                 <div class="fm-cmd">
                     <span class="fm-p">$</span>
-                    <code>scripts/publish.sh push X.Y.Z vX.Y.Z@sha1:…</code>
+                    <code>patchy build --all</code>
                     <div class="md-code__nav">
                         <button class="md-code__button" type="button" data-md-type="copy" title="Copy to clipboard"
                             aria-label="Copy to clipboard"></button>
@@ -347,8 +347,8 @@ needs. -#}
             <div class="fm-step">
                 <div class="fm-step__body">
                     <div class="fm-step__num">03</div>
-                    <h3>Promote</h3>
-                    <p>After soak, the gated promote workflow moves <code>stable</code> onto the same signed digests.</p>
+                    <h3>Release</h3>
+                    <p>Merging the release PR promotes the newest edge build to <code>vX.Y.Z</code> (stable): the same signed digests, never rebuilt.</p>
                     <a class="fm-step__alt" href="{{ 'reference/operations/' | url }}">Operations
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
                             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -359,7 +359,7 @@ needs. -#}
                 </div>
                 <div class="fm-cmd">
                     <span class="fm-p">$</span>
-                    <code>scripts/publish.sh tag X.Y.Z stable</code>
+                    <code>patchy build promote --all --from 'X.Y.Z-edge.*' --tag vX.Y.Z</code>
                     <div class="md-code__nav">
                         <button class="md-code__button" type="button" data-md-type="copy" title="Copy to clipboard"
                             aria-label="Copy to clipboard"></button>

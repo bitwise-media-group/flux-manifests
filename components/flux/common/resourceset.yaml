@@ -156,6 +156,8 @@ spec:
               url: ${FLUX_SYNC_URL}
               # The release channel: dev clusters track edge, production
               # tracks stable (paired with the matching signing subject).
+              # FluxInstance renders it as a tag; the ref patch below
+              # replaces it with the channel's semver range.
               ref: "${FLUX_SYNC_CHANNEL:=stable}"
               # The per-cloud tree inside the entrypoint image (aws or
               # google), published by terraform as PLATFORM_TREE from its
@@ -195,6 +197,25 @@ spec:
                         matchOIDCIdentity:
                           - issuer: '${SIGNED_IDENTITY_ISSUER}'
                             subject: '${SIGNED_IDENTITY_MANIFESTS:=^https://github\.com/bitwise-media-group/flux-manifests/}'
+                        << end >>
+                  target:
+                    kind: OCIRepository
+                    name: flux-system
+                # FluxInstance spec.sync renders ref as a tag only, but no
+                # tag ever moves: a channel is its newest immutable build.
+                # So, like the cluster module's bootstrap, the generated
+                # OCIRepository's ref is replaced with the channel's semver
+                # range (FLUX_SYNC_SEMVER: >=0.0.0-0 for edge, >=0.0.0 for
+                # stable, a pin verbatim) and, for edge, the regexp narrowing
+                # it to that channel's builds (FLUX_SYNC_SEMVER_FILTER, empty
+                # for stable or a pin).
+                - patch: |
+                    - op: add
+                      path: /spec/ref
+                      value:
+                        semver: '${FLUX_SYNC_SEMVER}'
+                        << if ne "${FLUX_SYNC_SEMVER_FILTER}" "" >>
+                        semverFilter: '${FLUX_SYNC_SEMVER_FILTER}'
                         << end >>
                   target:
                     kind: OCIRepository

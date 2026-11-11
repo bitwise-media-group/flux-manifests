@@ -1,0 +1,117 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+
+# patchy's configuration for this repo: `patchy build` packages every
+# component and the platform entrypoint as Flux OCI artifacts. Only the build
+# block lives here. The registries and the signing config are never committed:
+# the release workflow's patchy-publish step (bitwise-media-group/github-workflows)
+# writes them from org variables as a lower config layer, and `make build`
+# (`patchy build --all --dry-run`) needs neither.
+
+scan:
+  # Nothing here is an image, and a component directory is unrendered
+  # kustomize (several are custom resources only, which kubescape cannot
+  # scan). Configuration scanning runs over the rendered per-cloud overlays in
+  # lint-kustomize instead, and the workloads' charts are scanned in
+  # flux-containers.
+  enabled: false
+
+build:
+  # Every tag is immutable; a channel is its newest build, followed by semver
+  # range (terraform-*-flux "release channels"):
+  #   edge    <next version>-edge.<UTC yyyymmddhhmmss>.g<short commit>, every
+  #           push to main that cuts no release (the next version is the open
+  #           release pull request's)
+  #   stable  vX.Y.Z, added to the newest X.Y.Z edge build when the release is
+  #           cut (patchy build promote), never rebuilt
+  # VERSION, GIT_COMMIT and SOURCE_DATE_EPOCH (whose commit time the timestamp
+  # is) come from git, through the containers archetype locally and the
+  # patchy-publish step in CI. Artifacts are deterministic: one tree, source
+  # and revision always has one digest.
+  tags:
+    - "${VERSION}-edge.${PATCHY_TIMESTAMP}.g${GIT_COMMIT:0:7}"
+    - "sha-${GIT_COMMIT}"
+  # Entries publish in order: every component before the entrypoint, so a
+  # new platform build never references a component build that is not there
+  # yet. scripts/validate.sh fails when a component is missing here.
+  manifests:
+    - name: arc
+      repository: manifests/arc
+      path: components/arc
+      source: https://github.com/bitwise-media-group/flux-manifests
+      revision: "main@sha1:${GIT_COMMIT}"
+    - name: aws-load-balancer-controller
+      repository: manifests/aws-load-balancer-controller
+      path: components/aws-load-balancer-controller
+      source: https://github.com/bitwise-media-group/flux-manifests
+      revision: "main@sha1:${GIT_COMMIT}"
+    - name: cert-manager
+      repository: manifests/cert-manager
+      path: components/cert-manager
+      source: https://github.com/bitwise-media-group/flux-manifests
+      revision: "main@sha1:${GIT_COMMIT}"
+    - name: cert-manager-issuers
+      repository: manifests/cert-manager-issuers
+      path: components/cert-manager-issuers
+      source: https://github.com/bitwise-media-group/flux-manifests
+      revision: "main@sha1:${GIT_COMMIT}"
+    - name: cilium
+      repository: manifests/cilium
+      path: components/cilium
+      source: https://github.com/bitwise-media-group/flux-manifests
+      revision: "main@sha1:${GIT_COMMIT}"
+    - name: dex
+      repository: manifests/dex
+      path: components/dex
+      source: https://github.com/bitwise-media-group/flux-manifests
+      revision: "main@sha1:${GIT_COMMIT}"
+    - name: external-dns
+      repository: manifests/external-dns
+      path: components/external-dns
+      source: https://github.com/bitwise-media-group/flux-manifests
+      revision: "main@sha1:${GIT_COMMIT}"
+    - name: flux
+      repository: manifests/flux
+      path: components/flux
+      source: https://github.com/bitwise-media-group/flux-manifests
+      revision: "main@sha1:${GIT_COMMIT}"
+    - name: flux-web
+      repository: manifests/flux-web
+      path: components/flux-web
+      source: https://github.com/bitwise-media-group/flux-manifests
+      revision: "main@sha1:${GIT_COMMIT}"
+    - name: gateway
+      repository: manifests/gateway
+      path: components/gateway
+      source: https://github.com/bitwise-media-group/flux-manifests
+      revision: "main@sha1:${GIT_COMMIT}"
+    - name: karpenter
+      repository: manifests/karpenter
+      path: components/karpenter
+      source: https://github.com/bitwise-media-group/flux-manifests
+      revision: "main@sha1:${GIT_COMMIT}"
+    - name: kyverno
+      repository: manifests/kyverno
+      path: components/kyverno
+      source: https://github.com/bitwise-media-group/flux-manifests
+      revision: "main@sha1:${GIT_COMMIT}"
+    - name: kyverno-policies
+      repository: manifests/kyverno-policies
+      path: components/kyverno-policies
+      source: https://github.com/bitwise-media-group/flux-manifests
+      revision: "main@sha1:${GIT_COMMIT}"
+    - name: rbac
+      repository: manifests/rbac
+      path: components/rbac
+      source: https://github.com/bitwise-media-group/flux-manifests
+      revision: "main@sha1:${GIT_COMMIT}"
+    - name: secret-sync
+      repository: manifests/secret-sync
+      path: components/secret-sync
+      source: https://github.com/bitwise-media-group/flux-manifests
+      revision: "main@sha1:${GIT_COMMIT}"
+    - name: platform
+      repository: manifests/platform
+      path: platform
+      source: https://github.com/bitwise-media-group/flux-manifests
+      revision: "main@sha1:${GIT_COMMIT}"

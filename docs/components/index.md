@@ -40,4 +40,5 @@ specific to each.
 
 - Its Kustomization's timeout comes from the entrypoint (`10m` for kyverno, cert-manager and karpenter, `15m` for
   cilium, `5m` for the rest), with `wait: true`, `prune: true`, a 30-minute interval and a 2-minute retry.
-- `<NAME>_MANIFESTS_REF` pins its manifests image to a tag; empty, it follows `FLUX_SYNC_CHANNEL`.
+- `<NAME>_MANIFESTS_REF` pins its manifests image to a tag; empty, it follows the cluster's channel
+  (`FLUX_SYNC_SEMVER`).

@@ -1,12 +1,12 @@
 # Working on the docs
 
-This site is [Zensical](https://zensical.org), built with uv through the toolchain's python archetype. Its look is the
+This site is [Zensical](https://zensical.org), built with uv, which the toolchain pins. Its look is the
 [flux-containers](https://oss.bitwisemedia.uk/flux-containers/) site's: the same `docs/stylesheets/extra.css` tokens and
 header partials, with a landing page in `overrides/home.html`.
 
 ```sh
 make serve   # http://localhost:8004, live reload for docs/ edits
-make build   # render into site/
+mise run docs-build   # render into site/
 ```
 
 ## Layout

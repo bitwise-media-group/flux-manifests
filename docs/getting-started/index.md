@@ -3,8 +3,7 @@
 flux-manifests is the **platform** every BitWise Media Group Kubernetes cluster runs: the admission policy engine and
 its signature policy, cert-manager and its issuers, external-dns, the shared Gateway, RBAC, the OIDC identity provider,
 the Actions Runner Controller, and Flux itself. It's published as a small **entrypoint** image plus **one cosign-signed
-OCI image per component**, and every cluster's FluxInstance follows it on a release channel (`edge`, `staging` or
-`stable`).
+OCI image per component**, and every cluster's FluxInstance follows it on a release channel (`edge` or `stable`).
 
 Nothing in this repository is edited per cluster. Everything that differs between clusters (the cloud, the domain, the
 registry, which optional components run, the signing mode) arrives through the `cluster-vars` ConfigMap that the
@@ -26,7 +25,7 @@ flowchart LR
   fc -- "publish.yaml<br/>signed charts + images" --> reg
   fm -- "publish*.yaml<br/>signed manifests images" --> reg
   tf -- "bootstrap flux +<br/>cluster-vars" --> k8s
-  reg -- "manifests/platform<br/>on a channel tag" --> k8s
+  reg -- "manifests/platform<br/>newest build on a channel" --> k8s
 ```
 
 - **[flux-containers](https://oss.bitwisemedia.uk/flux-containers/)** mirrors every helm chart and container image the
@@ -45,7 +44,7 @@ components/<name>/common/         the component's cloud-neutral tier
 components/<name>/{aws,google}/   the per-cloud overlay (resources: ../common + cloud files)
                                                                              -> oci://<registry>/manifests/<name>
 scripts/validate.sh               the validation harness behind `make test`
-scripts/publish.sh                push + sign every image, move channel tags
+patchy.yaml                       what `patchy build` publishes: every component, then the entrypoint
 tests/{aws,google}{,.keyed}.env   the cluster-vars contract, machine-readable
 tests/inputs/                     ResourceSet render fixtures
 tests/schemas/                    vendored CRD schemas for kubeconform

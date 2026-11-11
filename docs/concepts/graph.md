@@ -56,8 +56,9 @@ election-independence guard checks the `none` render still emits every core comp
 ## Release pins
 
 Each entry's `ref` is its `<NAME>_MANIFESTS_REF` cluster variable: the component name upper-cased, with `-` turned into
-`_` (`CERT_MANAGER_ISSUERS_MANIFESTS_REF`). Empty, the component follows the cluster's channel (`FLUX_SYNC_CHANNEL`);
-set to a version, it pulls that tag instead. See [Operations](../reference/operations.md#pinning-a-component).
+`_` (`CERT_MANAGER_ISSUERS_MANIFESTS_REF`). Empty, the component follows the cluster's channel, its newest immutable
+build (`FLUX_SYNC_SEMVER`, narrowed by `FLUX_SYNC_SEMVER_FILTER`); set to a version or a build tag, it pulls that tag
+instead. See [Operations](../reference/operations.md#pinning-a-component).
 
 ## Template mechanics
 

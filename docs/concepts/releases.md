@@ -1,65 +1,63 @@
 # Releases & channels
 
-Clusters never follow a branch. They follow a **channel tag** on the published images, chosen in terraform
-(`flux.sync.ref`, published as `FLUX_SYNC_CHANNEL`):
+Clusters never follow a branch, and no tag ever moves. Every build is published under immutable tags, and a cluster
+follows its **channel**, chosen in terraform (`flux.sync.ref`): the newest build in the channel's semver range, narrowed
+by a tag regexp. The cluster module publishes the range and the regexp as `FLUX_SYNC_SEMVER` and
+`FLUX_SYNC_SEMVER_FILTER`.
 
-| channel   | moves when                   | typical clusters | signed by (subject)                 |
-| --------- | ---------------------------- | ---------------- | ----------------------------------- |
-| `edge`    | every merge to main          | dev, sandbox     | `publish-edge.yaml@refs/heads/main` |
-| `staging` | a release is cut             | staging          | `publish.yaml@refs/tags/v*`         |
-| `stable`  | a soaked release is promoted | production       | `publish.yaml@refs/tags/v*`         |
+| channel  | each build is tagged                                   | published when                          | typical clusters |
+| -------- | ------------------------------------------------------ | --------------------------------------- | ---------------- |
+| `edge`   | `<next version>-edge.<yyyymmddhhmmss>.g<short commit>` | every push to main that cuts no release | dev, sandbox     |
+| `stable` | `vX.Y.Z`, added to the newest `X.Y.Z` edge build       | the release PR merges and cuts `vX.Y.Z` | production       |
 
-A channel tag moves on **every** image at once: each component's `manifests/<name>` and the entrypoint
-`manifests/platform`. Each `platform-<name>` OCIRepository the entrypoint emits follows the same channel, unless that
-component is pinned with its `<NAME>_MANIFESTS_REF` variable.
+Edge is followed as `>=0.0.0-0` with a regexp matching only edge builds
+(`^[0-9]+[.][0-9]+[.][0-9]+-edge[.][0-9]{14}[.]g[0-9a-f]{7,40}$`); stable as `>=0.0.0`, which excludes pre-releases. An
+edge build is based on the **next** version, the open release PR's, so the order is consistent everywhere: `1.3.2` <
+`1.4.0-edge.*` < `1.4.0`. The timestamp is the commit's own time in UTC. Edge builds also carry `sha-<commit>`.
+
+Every artifact follows the same channel: each component's `manifests/<name>` and the entrypoint `manifests/platform`.
+Each `platform-<name>` OCIRepository the entrypoint emits takes `FLUX_SYNC_SEMVER` and `FLUX_SYNC_SEMVER_FILTER`, unless
+that component is pinned to a tag with its `<NAME>_MANIFESTS_REF` variable.
 
 ## What gets published
 
-`scripts/publish.sh` is the one place images are pushed and tagged, used by all three workflows:
+`patchy.yaml` lists what [`patchy build`](https://oss.bitwisemedia.uk/patchy/supply-chain/build/) publishes: every
+`components/<name>` as `manifests/<name>`, then `platform/` as `manifests/platform`. `make build` packages every
+artifact without publishing, and needs no registry configured; CI runs it on every pull request. A new component needs
+its entry in `patchy.yaml`, and the validation harness fails until it has one. Entries publish in order, so a platform
+build never references a component build that isn't there yet.
 
-```sh
-publish.sh push <tag> <revision>   # push + sign every component, then the entrypoint LAST
-publish.sh tag <from> <to>         # re-tag every image (components first, entrypoint last)
-```
+Publishing is the release workflow's `publish` job, which runs the
+[`patchy-publish`](https://oss.bitwisemedia.uk/github-workflows/actions/patchy-publish/) action after release-please:
 
-- **One image per directory.** Every `components/<name>` becomes `manifests/<name>`, and `platform/` becomes
-  `manifests/platform`. A new component is picked up automatically.
-- **The entrypoint goes last.** A tag never points at an entrypoint whose components aren't there yet.
-- **Sign before moving on.** Each digest is signed (keylessly, or with `COSIGN_KEY` for KMS mode) right after its push.
-  cosign's output, which repeats the sigstore terms of use for every image, is held back unless signing fails; each
-  `pushed` line records the transparency log index instead.
-- **Retagging pulls first.** `tag` pulls each source image before tagging, so a typo can never strand a channel on
-  nothing.
-- **Every registry.** The script pushes to each prefix in `REGISTRIES`: the GCP platform registry always, and the AWS
-  one when the org's `AWS_MANIFEST_PUBLISHER_ROLE` variable is set.
+1. **No release cut → edge.** Every artifact is built and pushed under its edge tag, then signed. Builds are
+   deterministic, so re-running a publish reports `skipped-current` and signs nothing twice.
+2. **Release cut → stable.** Merging the release PR cuts `vX.Y.Z`. The action finds the newest `X.Y.Z-edge.*` build of
+   every artifact, checks that it was built from a commit whose tree matches the release commit's (a release commit only
+   bumps the changelog and version), verifies its signature, and adds `vX.Y.Z` to it. Nothing is rebuilt: production
+   runs exactly the digests edge clusters have been running.
 
-## The release flow
+The publish job runs one at a time, in push order, so an edge build never races a promotion. The registry and the
+signing config are org variables, never committed; registry URLs are masked in the job's logs.
 
-1. **Merge to main → edge.** `publish-edge.yaml` pushes every image as `edge-next`, signs it, and only then retags
-   `edge-next` as `edge`. An edge cluster can therefore never pull an artifact whose signature isn't attached yet.
-2. **Release → staging.** release-please keeps a release PR open from the Conventional Commit history. Merging it cuts
-   `vX.Y.Z`; `publish.yaml` checks out the tag, pushes every image as `X.Y.Z` and moves `staging` onto it.
-3. **Promote → stable.** After soak, run the **Promote Manifests** workflow (`promote.yaml`) with the version. It's
-   gated by the `production` environment's required reviewers, and moves `stable` onto the same digests. The images and
-   their signatures are untouched; verification follows the digest.
+## Signing
 
-The edge workflow is a separate file on purpose. The Fulcio certificate subject is the workflow path plus the ref, so
-edge artifacts carry a distinct identity that only edge clusters trust, while staging and stable clusters keep matching
-`publish.yaml@refs/tags/v*` only. See [Signing & verification](signing.md#the-manifests-identity-per-channel).
+Both channels carry the same signature, made by this repository's release workflow on `main`
+(`…/flux-manifests/.github/workflows/release.yaml@refs/heads/main`). The channels are told apart by tag, and a stable
+cluster's `>=0.0.0` never matches an edge build. See [Signing & verification](signing.md#the-manifests-identity).
 
 ## Credentials
 
-The workflows hold no long-lived secrets. The job's GitHub OIDC token is exchanged for:
+The publish job holds no long-lived secrets. Its GitHub OIDC token is exchanged for:
 
 - a GCP access token through Workload Identity Federation, impersonating the manifest-publisher service account
-  (`GCP_WIF_PROVIDER`, `GCP_MANIFEST_PUBLISHER_SA`),
-- AWS credentials for the artifact-store module's `manifest_publishers` role (`AWS_MANIFEST_PUBLISHER_ROLE`, in
-  `AWS_REGION`), whose push grant covers `manifests/*`,
+  (`GOOGLE_WORKLOAD_IDENTITY_PROVIDER`, `GOOGLE_MANIFEST_PUBLISHER_SA`), whose trust admits this repository's `main`
+  branch,
 - and the Fulcio signing certificate.
 
-The publisher identities' trust policies admit exactly the subjects above: `refs/tags/v*` for `publish.yaml`,
-`refs/heads/main` for `publish-edge.yaml`, and the `production` environment for `promote.yaml`. These values are
-org-level Actions variables mirrored from the terraform artifact-store outputs.
+The platform registry is the `GOOGLE_PLATFORM_REGISTRY` org variable. An AWS platform registry joins when
+`AWS_PLATFORM_REGISTRY`, `AWS_MANIFEST_PUBLISHER_ROLE` and `AWS_REGION` are set; `SIGNING_KMS_KEY` switches signing to a
+KMS key.
 
 ## Versioning
 

@@ -118,5 +118,5 @@ is how the harness knows which cloud publishes what. Add it to [Cluster variable
 make pr
 ```
 
-Then follow the [daily workflow](daily-workflow.md). A new component is a `feat`. The publish workflows pick up every
-directory under `components/` automatically, so nothing else needs registering.
+Then follow the [daily workflow](daily-workflow.md). A new component is a `feat`. Add its entry to `patchy.yaml`'s
+`build.manifests`, before `platform`, so it is published; the validation harness fails until it is there.

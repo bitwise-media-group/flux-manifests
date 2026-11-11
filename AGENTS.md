@@ -24,7 +24,7 @@ around them doesn't. Use this table to find what to touch:
 | signing, verification or the admission policy                                         | `docs/concepts/signing.md`, `docs/components/kyverno-policies.md`                                                                                                                                                                               |
 | secret sync (either cloud's dialect, a new consumer)                                  | `docs/concepts/secret-sync.md` and the consumer's page                                                                                                                                                                                          |
 | `scripts/validate.sh`, the guards, fixtures or schemas                                | `docs/concepts/validation.md`; `docs/getting-started/adding-a-component.md` if the steps for a new component change                                                                                                                             |
-| `scripts/publish.sh`, a publish/promote workflow, channels or signing identities      | `docs/concepts/releases.md`, `docs/concepts/automation.md`                                                                                                                                                                                      |
+| `patchy.yaml`, `release.yaml`'s publish job, channels or signing identities           | `docs/concepts/releases.md`, `docs/concepts/automation.md`                                                                                                                                                                                      |
 | any other workflow under `.github/workflows/`                                         | `docs/concepts/automation.md`                                                                                                                                                                                                                   |
 | tasks (`tasks.toml`, `mise.toml`, the `Makefile`)                                     | `docs/reference/tasks.md` (the file itself is embedded; the summary table isn't)                                                                                                                                                                |
 | the application contract (seed, host, identity, exceptions, secrets, runners)         | `docs/applications.md`                                                                                                                                                                                                                          |
@@ -50,14 +50,16 @@ rather than leave it wrong.
 ```sh
 make test    # the validation harness: required for any manifest change
 make lint    # license headers, prose, workflows, shell, kubescape
-make build   # the docs site (zensical build); fails on a missing embed
+make build   # patchy build --all --dry-run: package every artifact, publish nothing
+mise run docs-build  # the docs site (zensical build); fails on a missing embed
 make serve   # preview on http://localhost:8004
 make pr      # all of the above plus fmt
 ```
 
-The `build` task runs in CI, so a broken page fails the PR. Running mise tools can rewrite `.mise/mise.lock` and create
-`.mise/locks/` inside the toolchain submodule; restore it (`git -C .mise checkout -- mise.lock && rm -rf .mise/locks`)
-before committing, and never commit submodule changes from here.
+The `docs-build` task runs in CI, so a broken page fails the PR. Running mise tools can rewrite `.mise/mise.lock` and
+create `.mise/locks/` inside the toolchain submodule; restore it
+(`git -C .mise checkout -- mise.lock && rm -rf .mise/locks`) before committing, and never commit submodule changes from
+here.
 
 ## Repository rules worth knowing
 

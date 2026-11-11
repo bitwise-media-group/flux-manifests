@@ -21,12 +21,9 @@ sees each Conventional Commit individually. A maintainer comments `/merge` on an
 
 ## On main
 
-| workflow            | trigger               | what it does                                                                                                                 |
-| ------------------- | --------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| `publish-edge.yaml` | push to main          | push and sign every image as `edge-next`, then move `edge` onto it                                                           |
-| `release.yaml`      | push to main          | release-please keeps the release PR current; on merge it cuts `vX.Y.Z`, and the docs job publishes this site to GitHub Pages |
-| `publish.yaml`      | release published     | push and sign every image at `X.Y.Z` from the release tag, move `staging`                                                    |
-| `promote.yaml`      | manual (`production`) | move `stable` onto a released version after soak                                                                             |
+| workflow       | trigger      | what it does                                                                                                                                                                                                                                                                            |
+| -------------- | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `release.yaml` | push to main | release-please keeps the release PR current. With no release cut, the publish job builds, pushes and signs every artifact as an immutable edge build; when its merge cuts `vX.Y.Z`, it promotes the newest edge build to `vX.Y.Z`, and the docs job publishes this site to GitHub Pages |
 
 The publish flow and its credentials are covered in [Releases & channels](releases.md).
 

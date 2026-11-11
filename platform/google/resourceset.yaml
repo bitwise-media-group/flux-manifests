@@ -5,7 +5,7 @@
 # FluxInstance syncs (oci://<registry>/manifests/platform, path google).
 # Every component below is its own OCI image
 # (oci://<registry>/manifests/<name>, published from components/<name> by
-# scripts/publish.sh), and this ResourceSet emits, per elected component,
+# patchy build (patchy.yaml)), and this ResourceSet emits, per elected component,
 # the OCIRepository that pulls it and the Kustomization that applies its
 # google overlay - so the list IS the graph: ordering, timeouts, election
 # gates and per-component release pins live here and nowhere else.
@@ -24,8 +24,10 @@
 # with the cluster.
 #
 # Each entry's ref (<NAME>_MANIFESTS_REF, a caller extra) pins that one
-# component to a tag; empty follows the cluster's release channel
-# (FLUX_SYNC_CHANNEL), so a cluster can soak or hold back a single
+# component to a tag; empty follows the cluster's release channel, the newest
+# immutable build in FLUX_SYNC_SEMVER's range (narrowed by
+# FLUX_SYNC_SEMVER_FILTER, empty for stable or a pin), so a cluster can soak
+# or hold back a single
 # component without a platform release. Every dict carries every key:
 # the template renders with missingkey=error.
 #
@@ -78,7 +80,14 @@ spec:
       url: oci://${PLATFORM_REGISTRY}/manifests/<< $c.name >>
       provider: gcp
       ref:
-        tag: << $c.ref | default "${FLUX_SYNC_CHANNEL}" | quote >>
+        << if $c.ref >>
+        tag: << $c.ref | quote >>
+        << else >>
+        semver: '${FLUX_SYNC_SEMVER}'
+        << if ne "${FLUX_SYNC_SEMVER_FILTER}" "" >>
+        semverFilter: '${FLUX_SYNC_SEMVER_FILTER}'
+        << end >>
+        << end >>
       verify:
         provider: cosign
         << if $keyed >>

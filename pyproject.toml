@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: MIT
 
 # The flux-manifests documentation site (Zensical via uv). Not a Python
-# package: no [build-system], so the python archetype's build runs only
-# `zensical build` — the same command the org release workflow's docs job runs.
+# package: no [build-system]. The toolchain's docs-build runs `zensical build`,
+# in ci and pr and in the org release workflow's docs job.
 [project]
 name = "flux-manifests-docs"
 version = "0.1.0"

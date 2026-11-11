@@ -18,8 +18,9 @@ flowchart TB
 ```
 
 1. **The FluxInstance** (bootstrapped by the cluster module, then managed by the platform's own
-   [flux](../components/flux.md) component) pulls `oci://<registry>/manifests/platform` at the cluster's channel tag,
-   verifies its cosign signature, and applies the tree for the cluster's cloud (`platform/aws` or `platform/google`).
+   [flux](../components/flux.md) component) pulls `oci://<registry>/manifests/platform` at the newest build on the
+   cluster's channel, verifies its cosign signature, and applies the tree for the cluster's cloud (`platform/aws` or
+   `platform/google`).
 2. **That tree holds one object**: the `platform` ResourceSet. It reads the `PLATFORM_COMPONENTS` election and emits,
    for every component the cluster should run, an `OCIRepository` that pulls `oci://<registry>/manifests/<component>`
    and a `Kustomization` that applies the component's overlay for the cloud. The list of components in that ResourceSet

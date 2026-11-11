@@ -1,12 +1,12 @@
 # flux-manifests
 
 The **platform** every cluster syncs: a small entrypoint image plus one cosign-signed OCI image per component, published
-to the platform registry and consumed by each cluster's FluxInstance on a channel tag (`edge`, `staging` or `stable`).
-The FluxInstance syncs the entrypoint alone (`oci://<registry>/manifests/platform`, path `aws` or `google`); its one
-`ResourceSet` elects the components the cluster runs and emits, per component, the `OCIRepository` that pulls
-`oci://<registry>/manifests/<component>` and the `Kustomization` that applies that component's overlay for the cloud.
-Nothing is edited per cluster: all remaining variation arrives through the `cluster-vars` ConfigMap the cluster module
-publishes.
+to the platform registry and consumed by each cluster's FluxInstance on a release channel (`edge` or `stable`): the
+channel's newest immutable build. The FluxInstance syncs the entrypoint alone (`oci://<registry>/manifests/platform`,
+path `aws` or `google`); its one `ResourceSet` elects the components the cluster runs and emits, per component, the
+`OCIRepository` that pulls `oci://<registry>/manifests/<component>` and the `Kustomization` that applies that
+component's overlay for the cloud. Nothing is edited per cluster: all remaining variation arrives through the
+`cluster-vars` ConfigMap the cluster module publishes.
 
 The platform is generic. It knows no application by name: applications are their own manifest images, seeded once by the
 cluster module and self-owned afterwards, and everything an application needs from the platform - a host on the Gateway,
@@ -37,7 +37,8 @@ components/<name>/common/         the component's cloud-neutral tier
 components/<name>/{aws,google}/   the per-cloud overlay (resources: ../common + cloud files)
                                                                              -> oci://<registry>/manifests/<name>
 tests/                            the cluster-vars env contract, render fixtures, vendored CRD schemas
-scripts/                          validate.sh (make test) and publish.sh (the publish workflows)
+scripts/validate.sh               the validation harness (make test)
+patchy.yaml                       what `patchy build` publishes (make build / release.yaml's publish job)
 docs/ · zensical.toml             the documentation site
 ```
 
@@ -76,5 +77,6 @@ make pr      # fmt + lint + test + docs build, before opening a pull request
 make serve   # preview the docs on http://localhost:8004
 ```
 
-release-please cuts `vX.Y.Z` from Conventional Commits. Every merge to main publishes `edge`; a release publishes
-`staging`; the gated promote workflow moves `stable`. See [Releases & channels](docs/concepts/releases.md).
+release-please cuts `vX.Y.Z` from Conventional Commits. Every merge to main publishes an immutable edge build of the
+next release, and merging the release PR promotes the newest one to `vX.Y.Z` (stable) without rebuilding it. No tag ever
+moves. See [Releases & channels](docs/concepts/releases.md).

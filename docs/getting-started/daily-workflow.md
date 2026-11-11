@@ -43,18 +43,16 @@ comments `/merge` on an approved, green PR, or arms it with `/auto-merge`. Don't
 
 ```mermaid
 flowchart LR
-  pr["PR merged<br/>to main"] -- "publish-edge.yaml" --> edge["edge<br/>dev clusters"]
-  pr -- "release-please PR" --> rel["vX.Y.Z released"]
-  rel -- "publish.yaml" --> staging["staging"]
-  staging -- "promote.yaml<br/>(production environment)" --> stable["stable<br/>production"]
+  pr["PR merged<br/>to main"] -- "release.yaml" --> edge["edge build<br/>dev clusters"]
+  edge -- "release-please PR merged<br/>(promote, no rebuild)" --> stable["vX.Y.Z stable<br/>production"]
 ```
 
-1. **Edge.** Every merge to main is pushed and signed as `edge` within minutes. Clusters on the `edge` channel pick it
-   up on their next reconcile.
-2. **Staging.** release-please keeps a release PR open. Merging it cuts `vX.Y.Z`, and the publish workflow pushes every
-   image at that version and moves `staging` onto it.
-3. **Stable.** After the release has soaked on staging, run the **Promote Manifests** workflow with the version. It's
-   gated by the `production` environment and moves `stable` onto the same signed digests.
+1. **Edge.** Every merge to main is built, pushed and signed as an immutable edge build of the next release
+   (`X.Y.Z-edge.<timestamp>.g<commit>`) within minutes. Clusters on the `edge` channel pick up the newest one on their
+   next reconcile.
+2. **Stable.** release-please keeps a release PR open; it's the gate to production. Merging it cuts `vX.Y.Z`, and the
+   release workflow adds `vX.Y.Z` to the newest edge build of that version. Nothing is rebuilt, so production runs the
+   exact digests edge clusters have been running.
 
 Details, including the signing identity each channel carries, are in [Releases & channels](../concepts/releases.md).
 

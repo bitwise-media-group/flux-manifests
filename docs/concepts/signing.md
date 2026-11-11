@@ -7,8 +7,8 @@ admitted. Nothing on the path from registry to running pod is trusted by locatio
 
 | artifact                              | signed by                         | verified by                                             | identity variable           |
 | ------------------------------------- | --------------------------------- | ------------------------------------------------------- | --------------------------- |
-| `manifests/platform` (the entrypoint) | this repo's publish workflows     | source-controller, via the FluxInstance verify patch    | `SIGNED_IDENTITY_MANIFESTS` |
-| `manifests/<component>`               | this repo's publish workflows     | source-controller, each `platform-<name>` OCIRepository | `SIGNED_IDENTITY_MANIFESTS` |
+| `manifests/platform` (the entrypoint) | this repo's release workflow      | source-controller, via the FluxInstance verify patch    | `SIGNED_IDENTITY_MANIFESTS` |
+| `manifests/<component>`               | this repo's release workflow      | source-controller, each `platform-<name>` OCIRepository | `SIGNED_IDENTITY_MANIFESTS` |
 | `charts/<chart>`                      | flux-containers' publish workflow | source-controller, each chart OCIRepository             | `SIGNED_IDENTITY_CHARTS`    |
 | `images/<path>` (every pod image)     | flux-containers' publish workflow | Kyverno, `verify-platform-signature` ClusterPolicy      | `SIGNED_IDENTITY_IMAGES`    |
 
@@ -47,18 +47,23 @@ The cluster module chooses the mode, and every verify point in the platform foll
 Because the verify block's shape changes, every OCIRepository that verifies lives in a `resourcesTemplate` with a
 `$keyed` branch. See [Chart delivery](chart-delivery.md#the-resourceset).
 
-## The manifests identity per channel
+## The manifests identity
 
-The certificate subject is the workflow path plus the ref it ran on, so each channel has its own identity:
+Every artifact is signed by the release workflow of the repository that publishes it, on `main`, through the
+[`patchy-publish`](https://oss.bitwisemedia.uk/github-workflows/actions/patchy-publish/) action. The certificate subject
+is the workflow path plus the ref it ran on:
 
-| channel             | signed by                       | subject                                                                |
-| ------------------- | ------------------------------- | ---------------------------------------------------------------------- |
-| `staging`, `stable` | `publish.yaml` on a release tag | `…/flux-manifests/.github/workflows/publish.yaml@refs/tags/v*`         |
-| `edge`              | `publish-edge.yaml` on main     | `…/flux-manifests/.github/workflows/publish-edge.yaml@refs/heads/main` |
+```text
+https://github.com/bitwise-media-group/flux-manifests/.github/workflows/release.yaml@refs/heads/main
+```
 
-A cluster's `SIGNED_IDENTITY_MANIFESTS` matches the identity for its channel, so a production cluster on `stable` will
-never accept an edge artifact even if a tag were moved by mistake. The same identity covers the entrypoint and every
-component image. See [Releases & channels](releases.md).
+Edge builds and stable releases carry the same signature, because a release is the newest edge build promoted, not
+rebuilt: the channel is told apart by the tag a cluster follows, and a stable cluster follows `>=0.0.0`, which never
+matches an edge build. A cluster's `SIGNED_IDENTITY_MANIFESTS` (the artifact-store module's
+`signed_identity_subjects.manifests`) trusts the release workflow of every repository in the org,
+`^https://github\.com/bitwise-media-group/[^/]+/\.github/workflows/release\.yaml@refs/heads/main$`. Only a repository in
+the org can produce that identity. The same identity covers the entrypoint and every component image. See
+[Releases & channels](releases.md).
 
 ## The admission policy
 
