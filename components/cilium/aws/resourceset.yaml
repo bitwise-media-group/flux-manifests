@@ -117,6 +117,10 @@ spec:
             enabled: true
           operator:
             replicas: 1
+            dashboards:
+              enabled: true
+              annotations:
+                grafana_folder: Cilium
             podAnnotations:
               # Bumped in lockstep with the vendored Gateway API CRDs'
               # `v=` (components/gateway/aws/crds/kustomization.yaml) --
@@ -127,3 +131,62 @@ spec:
               patchy.bitwisemedia.uk/gateway-api-crds-version: v1.6.1
           podAnnotations:
             patchy.bitwisemedia.uk/gateway-api-crds-version: v1.6.1
+          # Agent metrics on the pods' prometheus port (9962, a hostPort);
+          # the operator's are on by default. Both are scraped by
+          # kube-prometheus-stack's platform-monitors-aws where that is
+          # elected (cilium installs first, so the chart's own
+          # ServiceMonitors would find no CRD). The chart's agent and
+          # operator dashboards ship as grafana_dashboard ConfigMaps here,
+          # inert without Grafana.
+          prometheus:
+            enabled: true
+          dashboards:
+            enabled: true
+            annotations:
+              grafana_folder: Cilium
+          # Hubble flow metrics, served by the agent on its hubble-metrics
+          # port (9965, a hostPort), and the chart's four Hubble dashboards.
+          # The contexts are the labels those dashboards group and filter
+          # by: source/destination workload (or reserved identity, for
+          # world/host traffic) and namespace. No per-IP labels: the
+          # dashboards never use them and they are the cardinality risk.
+          # httpV2 is only populated for traffic under an L7 policy, so the
+          # L7 dashboard stays empty until an application opts in.
+          hubble:
+            # The relay aggregates every agent's flows; the UI renders them
+            # as a service map. The UI has no login of its own, so it is
+            # published only through the auth-proxy component (dex SSO,
+            # admins and devops only) and a NetworkPolicy there admits no
+            # other caller. Unlike the agent, operator and Envoy (still on
+            # terraform's verbatim bootstrap values, pulling quay.io), these
+            # are new workloads and run the mirrored images; the chart pins
+            # them by digest, which the mirror preserves.
+            relay:
+              enabled: true
+              image:
+                repository: ${CONTAINER_REGISTRY}/images/quay.io/cilium/hubble-relay
+              nodeSelector:
+                role: system
+            ui:
+              enabled: true
+              backend:
+                image:
+                  repository: ${CONTAINER_REGISTRY}/images/quay.io/cilium/hubble-ui-backend
+              frontend:
+                image:
+                  repository: ${CONTAINER_REGISTRY}/images/quay.io/cilium/hubble-ui
+              nodeSelector:
+                role: system
+            metrics:
+              enabled:
+                - dns:query;ignoreAAAA;sourceContext=workload-name|reserved-identity;destinationContext=workload-name|reserved-identity;labelsContext=source_namespace,destination_namespace
+                - drop:sourceContext=workload-name|reserved-identity;destinationContext=workload-name|reserved-identity;labelsContext=source_namespace,destination_namespace
+                - tcp:sourceContext=workload-name|reserved-identity;destinationContext=workload-name|reserved-identity;labelsContext=source_namespace,destination_namespace
+                - flow:sourceContext=workload-name|reserved-identity;destinationContext=workload-name|reserved-identity;labelsContext=source_namespace,destination_namespace
+                - icmp:sourceContext=workload-name|reserved-identity;destinationContext=workload-name|reserved-identity;labelsContext=source_namespace,destination_namespace
+                - port-distribution:labelsContext=source_namespace,destination_namespace
+                - httpV2:labelsContext=source_namespace,source_workload,destination_namespace,destination_workload,traffic_direction
+              dashboards:
+                enabled: true
+                annotations:
+                  grafana_folder: Hubble

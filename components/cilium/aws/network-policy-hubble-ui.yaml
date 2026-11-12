@@ -1,0 +1,30 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+
+# The Hubble UI shows every flow in the cluster to anyone who can reach it,
+# with no authorization of its own. Only the auth-proxy component's proxies
+# (dex SSO, admins and devops) may call it; everything else in the cluster
+# is refused. kubectl port-forward still works: it enters the pod's network
+# namespace through the kubelet, which no NetworkPolicy filters.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: hubble-ui
+  namespace: kube-system
+spec:
+  podSelector:
+    matchLabels:
+      k8s-app: hubble-ui
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: auth-proxy
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: oauth2-proxy
+      ports:
+        - protocol: TCP
+          port: 8081

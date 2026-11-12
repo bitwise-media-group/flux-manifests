@@ -5,3 +5,4 @@ kind: Kustomization
 resources:
   - input-provider.yaml
   - resourceset.yaml
+  - network-policy-hubble-ui.yaml
