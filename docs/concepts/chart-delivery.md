@@ -124,6 +124,7 @@ the chart version follows the mirror like every other component.
 | dex                          | `dex` + tracked image                                  | `DEX_SEMVER`, `DEX_IMAGE_SEMVER`                   |
 | arc                          | `gha-runner-scale-set-controller`                      | `ARC_SEMVER`                                       |
 | kube-prometheus-stack        | `kube-prometheus-stack`                                | `KUBE_PROMETHEUS_STACK_SEMVER`                     |
+| auth-proxy                   | `oauth2-proxy`                                         | `AUTH_PROXY_SEMVER`                                |
 
 The defaults for each range are on the component pages and in [Cluster variables](../reference/cluster-vars.md).
 

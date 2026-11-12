@@ -64,6 +64,7 @@ nav = [
     { "flux-web" = "components/flux-web.md" },
     { "arc" = "components/arc.md" },
     { "kube-prometheus-stack" = "components/kube-prometheus-stack.md" },
+    { "auth-proxy" = "components/auth-proxy.md" },
   ] },
   { "Applications" = "applications.md" },
   { "Reference" = [

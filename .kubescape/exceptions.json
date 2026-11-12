@@ -24,5 +24,33 @@
         "controlID": "C-0202"
       }
     ]
+  },
+  {
+    "name": "auth-proxy-kyverno-secrets",
+    "policyType": "postureExceptionPolicy",
+    "actions": [
+      "disable"
+    ],
+    "attributes": {
+      "reason": "auth-proxy's Role lets kyverno's background controller read and write Secrets in the auth-proxy namespace only, so its generate rule can mint each proxy instance's client and cookie secrets once (components/auth-proxy/common/secrets-policy.yaml). The grant is the mechanism, scoped to one namespace; the chart's own role grants kyverno no Secret access."
+    },
+    "resources": [
+      {
+        "designatorType": "Attributes",
+        "attributes": {
+          "kind": "Role",
+          "name": "kyverno-background-secrets",
+          "namespace": "auth-proxy"
+        }
+      }
+    ],
+    "posturePolicies": [
+      {
+        "controlID": "C-0015"
+      },
+      {
+        "controlID": "C-0186"
+      }
+    ]
   }
 ]

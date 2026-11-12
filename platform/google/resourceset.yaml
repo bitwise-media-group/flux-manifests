@@ -13,7 +13,7 @@
 # Two tiers. The core tier (kyverno, kyverno-policies, flux, cert-manager,
 # cert-manager-issuers, external-dns, gateway, rbac) has no election gate
 # and is emitted on every cluster; the electable tier (dex, flux-web, arc,
-# kube-prometheus-stack) deploys only when named in the
+# kube-prometheus-stack, auth-proxy) deploys only when named in the
 # PLATFORM_COMPONENTS cluster var - short names, comma-separated. Unset
 # elects dex and flux-web; the reserved name "none" (what terraform
 # publishes for an empty election) matches
@@ -59,6 +59,7 @@ spec:
       (dict "name" "dex" "timeout" "5m" "dependsOn" (list "kyverno-policies" "cert-manager" "gateway") "when" (list "dex") "ref" "${DEX_MANIFESTS_REF:=}")
       (dict "name" "flux-web" "timeout" "5m" "dependsOn" (list "gateway" "dex") "when" (list "flux-web" "dex") "ref" "${FLUX_WEB_MANIFESTS_REF:=}")
       (dict "name" "arc" "timeout" "5m" "dependsOn" (list "kyverno-policies") "when" (list "arc") "ref" "${ARC_MANIFESTS_REF:=}")
+      (dict "name" "auth-proxy" "timeout" "5m" "dependsOn" (list "kyverno-policies" "gateway" "dex") "when" (list "auth-proxy" "dex") "ref" "${AUTH_PROXY_MANIFESTS_REF:=}")
       (dict "name" "kube-prometheus-stack" "timeout" "10m" "dependsOn" (ternary (list "kyverno-policies" "cert-manager" "gateway" "dex") (list "kyverno-policies" "cert-manager") (has "dex" $elected)) "when" (list "kube-prometheus-stack") "ref" "${KUBE_PROMETHEUS_STACK_MANIFESTS_REF:=}")
     >>
     << range $c := $components >>

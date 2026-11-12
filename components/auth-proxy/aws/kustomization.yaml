@@ -1,0 +1,11 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+
+# The aws overlay of the auth-proxy component: the cloud-neutral common tier
+# plus the upstreams that exist only on aws (the Hubble UI comes with
+# cilium).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../common
+  - upstream-hubble.yaml

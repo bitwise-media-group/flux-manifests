@@ -40,6 +40,11 @@ build:
       path: components/arc
       source: https://github.com/bitwise-media-group/flux-manifests
       revision: "main@sha1:${GIT_COMMIT}"
+    - name: auth-proxy
+      repository: manifests/auth-proxy
+      path: components/auth-proxy
+      source: https://github.com/bitwise-media-group/flux-manifests
+      revision: "main@sha1:${GIT_COMMIT}"
     - name: aws-load-balancer-controller
       repository: manifests/aws-load-balancer-controller
       path: components/aws-load-balancer-controller

@@ -103,4 +103,7 @@ curl <crd-yaml> | yq -o=json '.spec.versions[0].schema.openAPIV3Schema'
 `make lint` adds, among the toolchain's standard checks, a kubescape configuration scan over every per-cloud component
 overlay. Overlays made only of custom resources kubescape can't map, plus at most their Namespace (cert-manager-issuers,
 cilium, flux, karpenter, kyverno-policies, rbac, secret-sync), are skipped; the workloads themselves are scanned in
-flux-containers, over each chart's rendered manifests. Accepted kubescape findings live in `.kubescape/exceptions.json`.
+flux-containers, over each chart's rendered manifests. Accepted kubescape findings live in `.kubescape/exceptions.json`,
+each with its reason. There are two: the cluster-wide admission controls asserted against bare Namespace objects, and
+[auth-proxy](../components/auth-proxy.md#secrets-minted-in-the-cluster)'s Role giving kyverno's background controller
+Secret access in that one namespace.

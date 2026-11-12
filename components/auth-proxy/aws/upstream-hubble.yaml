@@ -1,0 +1,23 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+
+# The Hubble UI (cilium's service map and flow browser) at
+# hubble.<domain>. It shows every flow in every namespace with no
+# authorization of its own, so only the groups that already hold
+# cluster-wide edit or admin get in. The cilium component admits only this
+# namespace to the UI (its NetworkPolicy), so the proxy is the only way in.
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSetInputProvider
+metadata:
+  name: upstream-hubble
+  namespace: auth-proxy
+  labels:
+    auth-proxy.platform.bitwisemedia.uk/upstream: "true"
+spec:
+  type: Static
+  defaultValues:
+    name: hubble
+    title: Hubble
+    host: hubble
+    upstream: http://hubble-ui.kube-system.svc.cluster.local
+    groups: "${RBAC_GROUP_ADMINS},${RBAC_GROUP_DEVOPS}"

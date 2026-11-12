@@ -89,6 +89,13 @@ versions the platform runs. When either component's mirrored chart moves, bump t
 `${var}` to `$var` so post-build substitution leaves the dashboards alone, and the harness fails if a braced reference
 slips through. Chart-shipped dashboards (kyverno, cilium) follow their charts and need nothing.
 
+## Rotating an auth-proxy secret
+
+Each [auth-proxy](../components/auth-proxy.md) instance's client and cookie secrets are minted once by kyverno and never
+changed. To rotate them, delete the Secret and then its trigger ConfigMap (both `<name>-auth-proxy` in `auth-proxy`).
+The ResourceSet recreates the trigger, kyverno mints fresh values, and dex-client-controller re-registers the client
+secret. Restart the instance's Deployment to pick them up. Everyone signed in to that UI is signed out.
+
 ## Caveats
 
 - **Gateway `NamedAddress` (google).** Verify the accepted `spec.addresses.type` on the cluster's GKE version at first

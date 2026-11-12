@@ -22,6 +22,7 @@ by the entrypoint as the Kustomization `<name>` in `flux-system`. The graph and 
 | [flux-web](flux-web.md)                                         | electable | both   | gateway, secret-sync¹, dex                            | `flux-system`                  | HTTPRoute `flux.`, `flux-web-auth` secret sync, edge policy                              |
 | [arc](arc.md)                                                   | electable | both   | kyverno-policies                                      | `arc-systems`                  | chart `gha-runner-scale-set-controller`                                                  |
 | [kube-prometheus-stack](kube-prometheus-stack.md)               | electable | both   | kyverno-policies, cert-manager, gateway², dex²        | `monitoring`                   | chart `kube-prometheus-stack`, HTTPRoute `grafana.` and its DexClient²                   |
+| [auth-proxy](auth-proxy.md)                                     | electable | both   | kyverno-policies, gateway, dex                        | `auth-proxy`                   | chart `oauth2-proxy`, one instance + HTTPRoute + DexClient per upstream (Hubble on aws)  |
 
 ¹ aws only; the google entrypoint has no secret-sync component.
 

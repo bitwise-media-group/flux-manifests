@@ -1,0 +1,20 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+
+# Fail-closed variant: every group the upstream names is unpublished, so the
+# instance renders without its HTTPRoute.
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSetInputProvider
+metadata:
+  name: upstream-hubble
+  namespace: auth-proxy
+  labels:
+    auth-proxy.platform.bitwisemedia.uk/upstream: "true"
+spec:
+  type: Static
+  defaultValues:
+    name: hubble
+    title: Hubble
+    host: hubble
+    upstream: http://hubble-ui.kube-system.svc.cluster.local
+    groups: ","

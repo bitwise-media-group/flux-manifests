@@ -1,0 +1,135 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+
+# One oauth2-proxy per protected upstream: a web UI with no login of its own,
+# published at <host>.<domain> behind dex SSO and open only to the groups the
+# upstream names. Upstreams are data, not code: each is a Static
+# ResourceSetInputProvider labelled auth-proxy.platform.bitwisemedia.uk/upstream
+# in this namespace (the per-cloud overlays ship them, since most upstreams
+# exist on one cloud only), exporting:
+#   name    instance name: the release, DexClient and Secret derive from it
+#   title   the name dex shows on its consent screen
+#   host    the hostname under PLATFORM_DOMAIN
+#   upstream  the in-cluster URL requests are forwarded to
+#   groups  comma-separated groups allowed in (empty entries ignored)
+# The default Flatten strategy gives each provider its own input set, so
+# this template renders once per upstream.
+#
+# Per upstream: a trigger ConfigMap kyverno mints the instance's Secret from
+# (secrets-policy.yaml), a DexClient registering that Secret's client secret
+# (client ID auth-proxy-<name>), the oauth2-proxy release reading it, and the
+# HTTPRoute. Sessions live in a sealed cookie, so the proxy is stateless.
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSet
+metadata:
+  name: auth-proxy-upstreams
+  namespace: auth-proxy
+spec:
+  inputsFrom:
+    - kind: ResourceSetInputProvider
+      selector:
+        matchLabels:
+          auth-proxy.platform.bitwisemedia.uk/upstream: "true"
+  resourcesTemplate: |
+    << $allowed := list >>
+    << range $g := splitList "," inputs.groups >>
+    << if ne (trim $g) "" >><< $allowed = append $allowed (trim $g) >><< end >>
+    << end >>
+    ---
+    # kyverno generates the Secret of the same name from this, once.
+    apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: << inputs.name >>-auth-proxy
+      namespace: auth-proxy
+      labels:
+        auth-proxy.platform.bitwisemedia.uk/trigger: "true"
+    data:
+      instance: << inputs.name | quote >>
+    ---
+    # The client's secret is the minted one (secretRef), so dex and the
+    # proxy share one value; dex-client-controller writes no Secret of its
+    # own. The ID is explicit because the chart reads it from the same
+    # Secret, and namespace-prefixed as restrict-dex-resources demands.
+    apiVersion: dex.bitwisemedia.uk/v1alpha1
+    kind: DexClient
+    metadata:
+      name: << inputs.name >>
+      namespace: auth-proxy
+    spec:
+      clientID: auth-proxy-<< inputs.name >>
+      name: << inputs.title | quote >>
+      redirectURIs:
+        - https://<< inputs.host >>.${PLATFORM_DOMAIN}/oauth2/callback
+      secretRef:
+        name: << inputs.name >>-auth-proxy
+        key: client-secret
+    ---
+    apiVersion: helm.toolkit.fluxcd.io/v2
+    kind: HelmRelease
+    metadata:
+      name: << inputs.name >>
+      namespace: auth-proxy
+    spec:
+      interval: 30m
+      timeout: 5m
+      chartRef:
+        kind: OCIRepository
+        name: oauth2-proxy
+        namespace: auth-proxy
+      values:
+        image:
+          registry: ${CONTAINER_REGISTRY}/images/quay.io
+        # client-id, client-secret and cookie-secret, minted by kyverno.
+        config:
+          existingSecret: << inputs.name >>-auth-proxy
+          upstreams:
+            - << inputs.upstream >>
+          # Who gets in is decided by group (below), not email domain.
+          emailDomains:
+            - "*"
+        extraArgs:
+          - --provider=oidc
+          - --provider-display-name=SSO
+          - --oidc-issuer-url=https://dex.${PLATFORM_DOMAIN}
+          - --redirect-url=https://<< inputs.host >>.${PLATFORM_DOMAIN}/oauth2/callback
+          - --scope=openid profile email groups
+          - --oidc-groups-claim=groups
+          - --code-challenge-method=S256
+          # Straight to dex: there is no other way in.
+          - --skip-provider-button=true
+          # Behind the platform Gateway, which sets X-Forwarded-*.
+          - --reverse-proxy=true
+          - --cookie-secure=true
+          - --cookie-name=_auth_proxy_<< inputs.name | replace "-" "_" >>
+          << range $g := $allowed >>
+          - --allowed-group=<< $g >>
+          << end >>
+        nodeSelector:
+          role: system
+    << if $allowed >>
+    ---
+    # Fail closed: with no allowed group (every group variable the upstream
+    # names is unpublished), the proxy would admit anyone dex knows, so the
+    # route is left out and the upstream stays unpublished.
+    apiVersion: gateway.networking.k8s.io/v1
+    kind: HTTPRoute
+    metadata:
+      name: << inputs.name >>
+      namespace: auth-proxy
+    spec:
+      parentRefs:
+        - name: platform
+          namespace: gateway
+      hostnames:
+        - << inputs.host >>.${PLATFORM_DOMAIN}
+      rules:
+        - matches:
+            - path:
+                type: PathPrefix
+                value: /
+          backendRefs:
+            # The chart names the release's resources <release>-oauth2-proxy.
+            - name: << inputs.name >>-oauth2-proxy
+              port: 80
+    << end >>

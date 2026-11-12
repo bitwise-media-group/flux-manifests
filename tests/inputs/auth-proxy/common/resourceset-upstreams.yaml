@@ -1,0 +1,21 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+
+# Static upstream providers, passed via --inputs-from-provider exactly as
+# the overlays ship them: one Hubble-shaped upstream with a blank entry in
+# its group list (an unpublished RBAC_GROUP_*), which must be skipped.
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSetInputProvider
+metadata:
+  name: upstream-hubble
+  namespace: auth-proxy
+  labels:
+    auth-proxy.platform.bitwisemedia.uk/upstream: "true"
+spec:
+  type: Static
+  defaultValues:
+    name: hubble
+    title: Hubble
+    host: hubble
+    upstream: http://hubble-ui.kube-system.svc.cluster.local
+    groups: "ci-test-admins,"

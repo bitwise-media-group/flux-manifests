@@ -57,14 +57,15 @@ kyverno ──► kyverno-policies ──┬──► cert-manager ──► cer
                                ├──► aws-load-balancer-controller (aws)
                                ├──► karpenter (aws)
                                ├──► arc
-                               └──► kube-prometheus-stack ◄── cert-manager, gateway + dex (when dex is elected)
+                               ├──► kube-prometheus-stack ◄── cert-manager, gateway + dex (when dex is elected)
+                               └──► auth-proxy ◄── gateway, dex
 gateway-api-crds (aws, GATEWAY_API_CRDS) ──► cilium (aws)          rbac (no dependencies)
 ```
 
-The **core tier** deploys on every cluster; the **electable tier** (`dex`, `flux-web`, `arc`, `kube-prometheus-stack`)
-deploys only when named in the `PLATFORM_COMPONENTS` cluster var. Every chart comes from the platform registry,
-mirrored, scanned and signed by [flux-containers](https://github.com/bitwise-media-group/flux-containers), and every pod
-image must carry the platform pipeline's signature to be admitted. See the
+The **core tier** deploys on every cluster; the **electable tier** (`dex`, `flux-web`, `arc`, `kube-prometheus-stack`,
+`auth-proxy`) deploys only when named in the `PLATFORM_COMPONENTS` cluster var. Every chart comes from the platform
+registry, mirrored, scanned and signed by [flux-containers](https://github.com/bitwise-media-group/flux-containers), and
+every pod image must carry the platform pipeline's signature to be admitted. See the
 [component catalogue](docs/components/index.md).
 
 ## Development

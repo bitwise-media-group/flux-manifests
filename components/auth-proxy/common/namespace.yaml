@@ -1,0 +1,11 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+
+# Every proxy instance, its Secret and its HTTPRoute live here; the
+# gateway-access label lets the platform Gateway's listener admit the routes.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: auth-proxy
+  labels:
+    platform.bitwisemedia.uk/gateway-access: "true"
