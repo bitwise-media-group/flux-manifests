@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT
 
 # The aws overlay of the flux-web component: the cloud-neutral core (the
-# HTTPRoute and the flux-system namespace's gateway-access label) plus
+# HTTPRoute) plus
 # this cloud's secret-sync dialect for the Web Config document and the
 # edge-admission policy for the operator pod (a CiliumNetworkPolicy
 # admitting the Cilium Gateway's reserved ingress identity).

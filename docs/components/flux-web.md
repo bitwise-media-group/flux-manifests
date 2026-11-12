@@ -26,7 +26,9 @@ the Gateway's traffic, and the label that lets `flux-system` attach routes to th
 - **HTTPRoute `flux-web`**: `flux.${PLATFORM_DOMAIN}` through `gateway/platform` to the `flux-operator` Service on
   port 9080. It lives here rather than in the operator's values because terraform bootstraps the operator before the
   Gateway exists; the platform owns everything that depends on its edge.
-- **Namespace `flux-system`**, adopted through server-side apply purely to add the `gateway-access` label.
+- No namespace. The route needs `flux-system` labelled `gateway-access`, but flux-operator owns that namespace and marks
+  it `kustomize.toolkit.fluxcd.io/ssa: Ignore`, so kustomize-controller won't apply it from here. The
+  [flux](flux.md#the-fluxinstance) component's FluxInstance sets the label instead, following this election.
 
 **Per-cloud overlay:**
 
@@ -65,12 +67,9 @@ drift.
 
 ## Un-electing it
 
-!!! danger "Never remove the prune label from the namespace"
-
-    Adopting `flux-system` makes this Kustomization the namespace's Flux owner. Its manifest carries
-    `kustomize.toolkit.fluxcd.io/prune: disabled`, so un-electing flux-web leaves the namespace (label included) in
-    place. Without that marker, un-electing flux-web would garbage-collect `flux-system` itself: the controllers, the
-    FluxInstance, everything.
+Un-electing flux-web prunes its route, secret sync and edge admission. The flux component's FluxInstance flips the
+`flux-system` label to `"false"` on its next reconcile, so the namespace stops being admitted to the Gateway. The
+namespace itself is never touched: it belongs to the operator.
 
 ## Cluster variables
 
@@ -82,12 +81,6 @@ drift.
 
     ```yaml
     --8<-- "components/flux-web/common/httproute.yaml"
-    ```
-
-??? example "components/flux-web/common/namespace.yaml"
-
-    ```yaml
-    --8<-- "components/flux-web/common/namespace.yaml"
     ```
 
 === "aws"

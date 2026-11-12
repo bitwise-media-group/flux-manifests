@@ -258,6 +258,23 @@ spec:
                   target:
                     kind: Deployment
                     name: helm-controller
+                # The platform Gateway's listener admits routes only from
+                # namespaces labelled gateway-access, and flux-web's
+                # HTTPRoute lives in flux-system. The operator owns that
+                # namespace and stamps it kustomize.toolkit.fluxcd.io/ssa:
+                # Ignore, so kustomize-controller skips any other
+                # Kustomization's apply of it - the label can only ride in
+                # here. It follows the election: "false" (not admitted)
+                # when flux-web isn't elected, so un-electing it revokes
+                # the namespace's admission. The default matches the
+                # entrypoint's, so the label and the election never disagree.
+                - patch: |
+                    - op: add
+                      path: /metadata/labels/platform.bitwisemedia.uk~1gateway-access
+                      value: "<< has "flux-web" (splitList "," "${PLATFORM_COMPONENTS:=dex,flux-web}") >>"
+                  target:
+                    kind: Namespace
+                    name: flux-system
         postRenderers:
           # The chart unconditionally renders distribution.artifact with its
           # default (upstream's flux-operator-manifests:latest) -- an ungated

@@ -4,8 +4,9 @@
 # The Flux status web UI's edge: flux.<domain> through the platform
 # Gateway's wildcard listener to the flux-operator Service's web port. The
 # route attaches by hostname (the listener admits every host under the
-# served domain from a gateway-access-labelled namespace - see
-# namespace.yaml beside this file). The route lives here rather than in
+# served domain from a gateway-access-labelled namespace; the flux
+# component's FluxInstance labels flux-system while flux-web is elected,
+# since the operator owns that namespace). The route lives here rather than in
 # the operator's helm values because the operator is bootstrapped by
 # terraform before the Gateway exists; the platform owns everything that
 # depends on its edge.

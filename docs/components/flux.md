@@ -41,7 +41,7 @@ The values the `flux` release renders are how the platform holds every cluster's
   rather than a default silently pointing the cluster at the wrong tree. Re-asserting them here is how a running cluster
   is [re-pointed](../reference/operations.md#re-pointing-a-cluster).
 
-Four kustomize patches ride on the instance:
+Six kustomize patches ride on the instance:
 
 1. **Controllers on the system pool**, matching the operator.
 2. **Signature verification on the sync source.** FluxInstance's `spec.sync` has no verify field, so a patch adds one to
@@ -55,6 +55,13 @@ Four kustomize patches ride on the instance:
    versions as build metadata (`0.56.0+<digest>`). That synthetic version lands in the helm release storage, which
    terraform shares by name and would read back as a chart tag that doesn't exist. Every chart tag here comes from a
    semver input provider, and the mirror never re-pushes a tag, so the digest isn't needed.
+5. **cluster-vars substitution on the sync Kustomization.** The entrypoint reads cluster variables itself, so the
+   generated `flux-system` Kustomization substitutes from `cluster-vars`, as the cluster module's bootstrap does.
+   Without it, re-applying the FluxInstance would apply the entrypoint literal and drop the whole electable tier.
+6. **The `gateway-access` label on `flux-system`**, `"true"` while [flux-web](flux-web.md) is elected and `"false"`
+   otherwise. The operator owns the namespace and marks it `kustomize.toolkit.fluxcd.io/ssa: Ignore`, so
+   kustomize-controller skips any other component's apply of it. The FluxInstance is the only place the label can be
+   set.
 
 A **post-renderer** removes `spec.distribution.artifact` from the rendered FluxInstance. The chart always renders it
 with upstream's `flux-operator-manifests:latest`, an ungated channel that could deliver controller patches before the
@@ -69,7 +76,8 @@ google, Pod Identity on aws). The operator's identity is what every component's 
 ## Cluster variables
 
 `PLATFORM_REGISTRY`, `CONTAINER_REGISTRY`, `ARTIFACT_TAG_PROVIDER`, `OCI_PROVIDER`, `FLUX_SYNC_URL`,
-`FLUX_SYNC_CHANNEL`, `FLUX_SYNC_SEMVER`, `FLUX_SYNC_SEMVER_FILTER`, `PLATFORM_TREE`, `SIGNED_IDENTITY_*`, `FLUX_SEMVER`.
+`FLUX_SYNC_CHANNEL`, `FLUX_SYNC_SEMVER`, `FLUX_SYNC_SEMVER_FILTER`, `PLATFORM_TREE`, `PLATFORM_COMPONENTS`,
+`SIGNED_IDENTITY_*`, `FLUX_SEMVER`.
 
 ## Source
 
