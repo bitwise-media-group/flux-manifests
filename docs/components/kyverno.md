@@ -34,9 +34,11 @@ first component on every cluster, and almost everything else waits for it.
   mirror's discovery render. Without the pre-delete cleanup hook, webhook configurations linger if the release is ever
   uninstalled and have to be removed by hand.
 - **PolicyExceptions on, in one namespace.** `features.policyExceptions` is enabled with `namespace: kyverno`. An
-  application signed by a different identity ships its exception here, beside its own verifying ClusterPolicy. Limiting
-  exceptions to one namespace makes an exception a platform-reviewed policy decision rather than something any workload
-  namespace can grant itself. See [Applications](../applications.md#its-own-image-signer).
+  application signed by a different identity ships its exception here, beside its own verifying ImageValidatingPolicy.
+  The setting governs both the `kyverno.io` exceptions and the `policies.kyverno.io` (CEL) ones the platform's policies
+  now use: kyverno lists CEL exceptions from the same single namespace. Limiting exceptions to one namespace makes an
+  exception a platform-reviewed policy decision rather than something any workload namespace can grant itself. See
+  [Applications](../applications.md#its-own-image-signer).
 
 - **Its dashboard ships with it.** `grafana.enabled` renders the chart's dashboard as a `grafana_dashboard` ConfigMap,
   filed under the Kyverno folder. It's inert unless [kube-prometheus-stack](kube-prometheus-stack.md#dashboards) is

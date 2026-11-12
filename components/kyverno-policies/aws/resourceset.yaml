@@ -9,34 +9,45 @@
 # itself is additionally excluded at the webhook level by the kyverno chart
 # defaults.
 #
-# The policy rides a ResourceSet rather than a plain manifest because the
-# attestor SHAPE follows the signing mode: keyless clusters trust the Fulcio
-# identities, KMS-keyed clusters (SIGNED_IDENTITY_KMS_KEY set) resolve the
-# signing key through the cloud KMS API at admission - the terraform grants
-# the kyverno controllers GetPublicKey/Verify on the key. Conditional
-# membership of a list needs a text template.
+# An ImageValidatingPolicy (policies.kyverno.io, CEL), not the deprecated
+# kyverno.io ClusterPolicy. The exclusion is matchImageReferences (whose
+# expressions see the image as `ref`): `images`
+# carries only the images it matches, so the system images never reach the
+# validation, and required (on) fails any matched image no policy in the
+# request verified -- the closure the platform rule exists for.
+#
+# It rides a ResourceSet because the attestor SHAPE follows the signing mode:
+# keyless clusters trust the Fulcio identities, KMS-keyed clusters
+# (SIGNED_IDENTITY_KMS_KEY set) resolve the signing key through the AWS KMS
+# API at admission - the terraform grants the kyverno controllers
+# GetPublicKey/Verify on the key. Conditional membership needs a text
+# template.
 #
 # One identity, no application carve-outs: an application whose images are
-# signed elsewhere ships a PolicyException in the kyverno namespace (the
-# kyverno component enables them there) scoped to its own namespaces,
-# beside its own ClusterPolicy verifying that identity - so every image is
+# signed elsewhere ships a policies.kyverno.io PolicyException in the kyverno
+# namespace (the only one kyverno reads them from) exempting its own pods,
+# beside its own ImageValidatingPolicy verifying them - so every image is
 # still verified by exactly one policy, and the platform never learns an
-# application's registry or signer.
+# application's registry or signer. An image policy honours only
+# whole-resource exceptions (one with images set is ignored), so the
+# exemption is by pod, and the application's policy must close over every
+# image in those pods.
 #
-# type: SigstoreBundle: the platform signs with cosign v3, whose signatures
-# are sigstore bundles attached via the OCI referrers API - NOT the legacy
-# .sig tag, which is all the default Cosign verification type reads
-# (--use-signing-config=false in the publish pipelines selects the v2 trust
-# services, it does not change the storage format). The tlog entry travels
-# inside the bundle and kyverno checks it offline against the sigstore TUF
-# trusted root; the rekor.url on the keyless entry exists only because
-# kyverno's CRD validation demands rekor-or-roots on every keyless attestor
-# regardless of type. Flux verifies the same bundles independently
-# (source-controller >= v1.8 / Flux 2.8).
+# Signatures are cosign v3 sigstore bundles attached via the OCI referrers
+# API; the image verifier detects and verifies them (tlog entry included)
+# offline against the sigstore TUF trusted root. Registry auth is per-policy
+# for this kind (no global credential helper): `amazon` uses the admission
+# controller's Pod Identity grant on the platform registry.
 #
-# failureAction starts as Audit via the cluster var default: soak a fresh
-# cluster, audit the PolicyReports, then flip KYVERNO_FAILURE_ACTION=Enforce
-# in terraform's flux.cluster_vars - no manifests release needed.
+# Digest rewriting stays off (mutateDigest defaults on for this kind): the
+# action is cluster-var-driven and a digest mutation under Audit would
+# change pods the policy is only meant to report on. verifyDigest follows
+# suit - without the mutation, tag-referenced images carry no digest.
+#
+# KYVERNO_FAILURE_ACTION keeps its values: Audit (default) reports through
+# PolicyReports, Enforce denies. Soak a fresh cluster, audit the reports,
+# then flip it in terraform's flux.cluster_vars - no manifests release
+# needed.
 apiVersion: fluxcd.controlplane.io/v1
 kind: ResourceSet
 metadata:
@@ -48,56 +59,53 @@ spec:
     # substitution turns an empty input into null, the key vanishes on
     # apply, and the template's missingkey=error fails the build.
     << $keyed := ne "${SIGNED_IDENTITY_KMS_KEY:=}" "" >>
+    << $enforce := eq "${KYVERNO_FAILURE_ACTION:=Audit}" "Enforce" >>
+    << $system := `ref.startsWith('registry.k8s.io/') || ref.startsWith('602401143452.dkr.ecr.') || ref.matches('^[^/]+\\.dkr\\.ecr\\.[^/]+\\.amazonaws\\.com/eks/')` >>
     ---
-    apiVersion: kyverno.io/v1
-    kind: ClusterPolicy
+    apiVersion: policies.kyverno.io/v1
+    kind: ImageValidatingPolicy
     metadata:
       name: verify-platform-signature
     spec:
+      validationActions:
+        - << if $enforce >>Deny<< else >>Audit<< end >>
+      failurePolicy: Fail
       webhookConfiguration:
-        failurePolicy: Fail
         timeoutSeconds: 30
-      rules:
-        - name: verify-platform-signature
-          match:
-            any:
-              - resources:
-                  kinds:
-                    - Pod
-          verifyImages:
-            - imageReferences:
-                - "*"
-              skipImageReferences:
-                - "registry.k8s.io/*"
-                # EKS add-on pods (coredns, kube-proxy, the Pod Identity
-                # agent, ...) pull from the Amazon-owned distro registries
-                - "602401143452.dkr.ecr.*"
-                - "*.dkr.ecr.*.amazonaws.com/eks/*"
-              type: SigstoreBundle
-              failureAction: "${KYVERNO_FAILURE_ACTION:=Audit}"
-              required: true
-              # Digest rewriting stays off: kyverno rejects mutateDigest
-              # under an Audit failureAction, and failureAction is
-              # cluster-var-driven, so the policy must be valid in both
-              # modes. verifyDigest follows suit - without the mutation,
-              # tag-referenced images carry no digest and would fail that
-              # check spuriously. What is verified is the cosign signature
-              # on whatever the tag resolves to at admission.
-              mutateDigest: false
-              verifyDigest: false
-              attestors:
-                - count: 1
-                  entries:
-                    << if $keyed >>
-                    # Keyed: the signing key, resolved through the AWS KMS
-                    # API in cosign's awskms URI scheme.
-                    - keys:
-                        kms: awskms:///${SIGNED_IDENTITY_KMS_KEY}
-                    << else >>
-                    - keyless:
-                        subjectRegExp: '${SIGNED_IDENTITY_IMAGES}'
-                        issuerRegExp: '${SIGNED_IDENTITY_ISSUER}'
-                        # satisfies CRD validation only - see header comment
-                        rekor:
-                          url: https://rekor.sigstore.dev
-                    << end >>
+      matchConstraints:
+        resourceRules:
+          - apiGroups: [""]
+            apiVersions: ["v1"]
+            operations: ["CREATE", "UPDATE"]
+            resources: ["pods"]
+      # Every image but the cloud's own system images (registry.k8s.io;
+      # the EKS add-on images in the Amazon-owned distro registries).
+      matchImageReferences:
+        - expression: >-
+            !(<< $system >>)
+      credentials:
+        providers:
+          - amazon
+      attestors:
+        - name: platform
+          cosign:
+            << if $keyed >>
+            # Keyed: the signing key, resolved through the AWS KMS API in
+            # cosign's awskms URI scheme.
+            key:
+              kms: awskms:///${SIGNED_IDENTITY_KMS_KEY}
+            << else >>
+            keyless:
+              identities:
+                - subjectRegExp: '${SIGNED_IDENTITY_IMAGES}'
+                  issuerRegExp: '${SIGNED_IDENTITY_ISSUER}'
+            << end >>
+      validationConfigurations:
+        required: true
+        mutateDigest: false
+        verifyDigest: false
+      validations:
+        - expression: >-
+            (images.?containers.orValue([]) + images.?initContainers.orValue([]) + images.?ephemeralContainers.orValue([]))
+            .all(image, verifyImageSignatures(image, [attestors.platform]) > 0)
+          message: every image must carry the platform publish workflow's signature

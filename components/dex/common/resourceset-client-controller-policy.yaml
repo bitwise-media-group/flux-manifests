@@ -1,0 +1,111 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+
+# Image verification for dex-client-controller. verify-platform-signature
+# holds every pod image to the platform publish identity, but the
+# controller image comes straight from ghcr, signed by goreleaser inside
+# the shared release workflow -- a different identity -- so the platform
+# rule can never pass it. The application pattern restores closure with
+# two objects:
+#
+#   - a PolicyException (in the kyverno namespace, the only one kyverno
+#     reads exceptions from) exempting the controller's pods -- and only
+#     those: dex itself stays under the platform rule -- and
+#   - the verify-dex-client-controller-signature ImageValidatingPolicy,
+#     matching exactly the same pods, verifying the ghcr image against its
+#     own identity and admitting no other image into them. Every container
+#     in those pods is therefore still verified by exactly one policy, and
+#     the exception can never widen into "unverified".
+#
+# Both are policies.kyverno.io (CEL) kinds. An image policy honours only a
+# whole-resource exception (one with images set is ignored), so the
+# exemption is by pod; the matchConditions name both the pods
+# (generateName dex-client-controller-...) and the Deployment and
+# ReplicaSet the policies are auto-generated for.
+#
+# Unlike the platform rule, the attestor is keyless on every cluster: a
+# KMS-keyed cluster's key never signed a first-party ghcr image. Its
+# Fulcio identity is the REUSABLE workflow's job_workflow_ref
+# (github-workflows, not the controller repository), pinned to releases cut
+# from the controller repository via the githubWorkflowRepository
+# extension. The image is public, so no registry credentials. Digest
+# handling and the KYVERNO_FAILURE_ACTION mapping follow
+# verify-platform-signature (see kyverno-policies), so the two soak and
+# enforce together -- which is why this rides a ResourceSet: the action
+# needs a template to map Enforce onto Deny.
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSet
+metadata:
+  name: dex-client-controller-policy
+  namespace: dex
+spec:
+  resourcesTemplate: |
+    << $enforce := eq "${KYVERNO_FAILURE_ACTION:=Audit}" "Enforce" >>
+    << $controller := `request.namespace == 'dex' && (object.metadata.?name.orValue('') + object.metadata.?generateName.orValue('')).startsWith('dex-client-controller')` >>
+    ---
+    apiVersion: policies.kyverno.io/v1
+    kind: PolicyException
+    metadata:
+      name: dex-client-controller-images
+      namespace: kyverno
+    spec:
+      policyRefs:
+        - kind: ImageValidatingPolicy
+          name: verify-platform-signature
+      matchConditions:
+        - name: dex-client-controller
+          expression: >-
+            << $controller >>
+    ---
+    apiVersion: policies.kyverno.io/v1
+    kind: ImageValidatingPolicy
+    metadata:
+      name: verify-dex-client-controller-signature
+    spec:
+      validationActions:
+        - << if $enforce >>Deny<< else >>Audit<< end >>
+      failurePolicy: Fail
+      webhookConfiguration:
+        timeoutSeconds: 30
+      matchConstraints:
+        resourceRules:
+          - apiGroups: [""]
+            apiVersions: ["v1"]
+            operations: ["CREATE", "UPDATE"]
+            resources: ["pods"]
+      matchConditions:
+        - name: dex-client-controller
+          expression: >-
+            << $controller >>
+      # Every image, not just the controller's: `images` carries only the
+      # matched ones, so the only-image rule below could not see a sidecar
+      # otherwise. Anything else fails both rules, and required.
+      matchImageReferences:
+        - glob: "*"
+      attestors:
+        - name: release
+          cosign:
+            keyless:
+              identities:
+                - subjectRegExp: '^https://github\.com/bitwise-media-group/github-workflows/'
+                  issuerRegExp: '^https://token\.actions\.githubusercontent\.com$'
+              additionalExtensions:
+                githubWorkflowRepository: bitwise-media-group/dex-client-controller
+      validationConfigurations:
+        required: true
+        mutateDigest: false
+        verifyDigest: false
+      variables:
+        - name: allImages
+          expression: >-
+            images.?containers.orValue([]) + images.?initContainers.orValue([]) + images.?ephemeralContainers.orValue([])
+      validations:
+        # The exception moves the check, it must not remove it: the
+        # exempted pods may run the controller image and nothing else, so
+        # no sidecar or init image ever rides the exemption unverified.
+        - expression: >-
+            variables.allImages.all(image, image.startsWith('ghcr.io/bitwise-media-group/dex-client-controller'))
+          message: dex-client-controller pods may only run the ghcr.io/bitwise-media-group/dex-client-controller image.
+        - expression: >-
+            variables.allImages.all(image, verifyImageSignatures(image, [attestors.release]) > 0)
+          message: the dex-client-controller image must carry its release workflow's signature

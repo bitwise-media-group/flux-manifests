@@ -1,7 +1,7 @@
 # Copyright 2026 BitWise Media Group Ltd
 # SPDX-License-Identifier: MIT
 
-# Kyverno policy engine: enforces the verify-platform-signature ClusterPolicy
+# Kyverno policy engine: enforces the verify-platform-signature ImageValidatingPolicy
 # (kyverno-policies component) so only images signed by the platform pipeline
 # are admitted. Registry credentials for signature fetches come from the
 # terraform-created Workload Identity grants on the admission and reports
@@ -105,7 +105,7 @@ spec:
           # PolicyExceptions on, homed in the kyverno namespace: an
           # application whose images are signed by a different identity
           # than the platform pipeline ships a PolicyException there (scoped
-          # to its own namespaces) beside its own verifying ClusterPolicy,
+          # to its own pods) beside its own verifying ImageValidatingPolicy,
           # so verify-platform-signature stays a single-identity rule and
           # every image is still verified by exactly one policy. One
           # namespace rather than any: an exception is a policy decision,

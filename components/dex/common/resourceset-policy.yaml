@@ -20,6 +20,10 @@
 # soak would leave the takeover open while it runs, and nothing on a
 # running cluster predates the rule.
 #
+# A ValidatingPolicy (policies.kyverno.io, CEL), not the deprecated
+# kyverno.io ClusterPolicy. Background scanning is off: the rule is about
+# who may write, so only admission can answer it.
+#
 # A ResourceSet, not a plain manifest, only for dependsOn: kyverno rejects
 # a policy naming a kind it cannot resolve, and the CRDs arrive with the
 # dex-client-controller release in this same reconcile.
@@ -38,53 +42,34 @@ spec:
       name: dexconnectors.dex.bitwisemedia.uk
   resourcesTemplate: |
     ---
-    apiVersion: kyverno.io/v1
-    kind: ClusterPolicy
+    apiVersion: policies.kyverno.io/v1
+    kind: ValidatingPolicy
     metadata:
       name: restrict-dex-resources
     spec:
-      # Admission only: the rules judge requests, and background scans
-      # would need kyverno's report controller granted read on the CRDs.
-      background: false
+      validationActions:
+        - Deny
+      failurePolicy: Fail
       webhookConfiguration:
-        failurePolicy: Fail
         timeoutSeconds: 10
-      rules:
-        - name: dexclient-namespace-prefix
-          match:
-            any:
-              - resources:
-                  kinds:
-                    - dex.bitwisemedia.uk/v1alpha1/DexClient
-                  operations:
-                    - CREATE
-                    - UPDATE
-          validate:
-            failureAction: Enforce
-            message: >-
-              spec.clientID must be omitted or start with
-              "{{ request.object.metadata.namespace }}-".
-            pattern:
-              spec:
-                =(clientID): "{{ request.object.metadata.namespace }}-*"
-        - name: dexconnector-platform-only
-          match:
-            any:
-              - resources:
-                  kinds:
-                    - dex.bitwisemedia.uk/v1alpha1/DexConnector
-                  operations:
-                    - CREATE
-                    - UPDATE
-          exclude:
-            any:
-              - resources:
-                  namespaces:
-                    - dex
-          validate:
-            failureAction: Enforce
-            message: >-
-              DexConnectors are platform-owned and may only be created in
-              the dex namespace; connectors are configured through
-              DEX_CONNECTORS.
-            deny: {}
+      evaluation:
+        background:
+          enabled: false
+      matchConstraints:
+        resourceRules:
+          - apiGroups: ["dex.bitwisemedia.uk"]
+            apiVersions: ["v1alpha1"]
+            operations: ["CREATE", "UPDATE"]
+            resources: ["dexclients", "dexconnectors"]
+      validations:
+        - expression: >-
+            object.kind != 'DexClient' ||
+            !has(object.spec.clientID) ||
+            object.spec.clientID.startsWith(object.metadata.namespace + '-')
+          messageExpression: >-
+            'spec.clientID must be omitted or start with "' + object.metadata.namespace + '-".'
+        - expression: >-
+            object.kind != 'DexConnector' || object.metadata.namespace == 'dex'
+          message: >-
+            DexConnectors are platform-owned and may only be created in the
+            dex namespace; connectors are configured through DEX_CONNECTORS.

@@ -54,8 +54,11 @@ upstream stays unpublished. `make test` renders both cases.
 
 Each instance needs two random values that must stay put: the OAuth client secret it shares with dex, and the key that
 seals its cookies (changing it signs everyone out). A Flux render is deterministic, so nothing in it can mint a value
-once and keep it. kyverno can: the `auth-proxy-secrets` ClusterPolicy generates `<name>-auth-proxy` from the trigger
-ConfigMap with `synchronize: false`, using kyverno's `random()` function, and never touches it again. A Role in
+once and keep it. kyverno can: the `auth-proxy-secrets` NamespacedGeneratingPolicy (Kyverno's CEL kind, confined to this
+namespace) generates `<name>-auth-proxy` from the trigger ConfigMap using CEL's `random()`, and never touches it again.
+Generating over an existing Secret replaces it, so the policy is built to mint once: it triggers on `CREATE` only,
+synchronisation is off, and `generateExisting` catches a trigger created before the policy was admitted. That scan runs
+once, when the policy is created, so deleting and recreating the policy would rotate every instance's secrets. A Role in
 `auth-proxy` lets kyverno's background controller write Secrets there and nowhere else. No secret lands in git,
 terraform state or a cloud secret store. To rotate one, see
 [Operations](../reference/operations.md#rotating-an-auth-proxy-secret).

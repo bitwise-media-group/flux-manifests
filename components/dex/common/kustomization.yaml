@@ -10,5 +10,5 @@ resources:
   - pki.yaml
   - resourceset.yaml
   - resourceset-client-controller.yaml
-  - policy-client-controller.yaml
+  - resourceset-client-controller-policy.yaml
   - resourceset-policy.yaml

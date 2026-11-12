@@ -92,10 +92,12 @@ registers the client and writes its credentials to a Secret beside it (`<name>-d
   cluster, KMS-keyed or not. The release runs the chart's default image. See
   [First-party charts](../concepts/chart-delivery.md#first-party-charts).
 - **Its own image signer.** The controller image is signed by the shared release workflow, not the platform pipeline, so
-  the component ships the application pattern: a `PolicyException` in `kyverno` exempting only the
-  `dex-client-controller-*` pods in `dex` from `verify-platform-signature`, and the
-  `verify-dex-client-controller-signature` ClusterPolicy verifying those same pods' image against its own identity and
-  admitting no other image into them. dex's own pods stay under the platform rule.
+  the component ships the application pattern: a `policies.kyverno.io` `PolicyException` in `kyverno` exempting only the
+  `dex-client-controller` pods (and the Deployment and ReplicaSet the policy is auto-generated for) in `dex` from
+  `verify-platform-signature`, and the `verify-dex-client-controller-signature` ImageValidatingPolicy verifying those
+  same pods' image against its own identity and admitting no other image into them. It matches every image (`*`) so a
+  sidecar can't slip past: the kind only shows a policy the images it matches. dex's own pods stay under the platform
+  rule. Both ride a ResourceSet so the action can follow `KYVERNO_FAILURE_ACTION` (`Enforce` renders `Deny`).
 - **Values**: `dex.address: dex.dex.svc.cluster.local:5557`, `dex.issuer: https://dex.${PLATFORM_DOMAIN}` (written into
   every generated Secret), the CRDs installed and kept on uninstall, DexClient write access aggregated into the built-in
   `edit` and `admin` roles, and the system node pool. The release depends on the dex HelmRelease.
@@ -104,12 +106,12 @@ registers the client and writes its credentials to a Secret beside it (`<name>-d
   through a `DexClient` like any application (`monitoring-grafana`), as does each [auth-proxy](auth-proxy.md) instance
   (`auth-proxy-<name>`).
 
-The `restrict-dex-resources` ClusterPolicy closes what RBAC can't. A `DexClient`'s `spec.clientID` must be omitted (the
-controller then uses `<namespace>-<name>`) or start with `<namespace>-`, so client IDs are partitioned by namespace and
-no application can claim another's. `DexConnector` objects are admitted only in `dex`: connectors stay platform-owned,
-set through `DEX_CONNECTORS`. It's enforced from the start rather than following `KYVERNO_FAILURE_ACTION`, since a soak
-would leave the takeover open. It rides a ResourceSet that waits for both CRDs, because kyverno rejects a policy for a
-kind it can't resolve.
+The `restrict-dex-resources` ValidatingPolicy (Kyverno's CEL kind) closes what RBAC can't. A `DexClient`'s
+`spec.clientID` must be omitted (the controller then uses `<namespace>-<name>`) or start with `<namespace>-`, so client
+IDs are partitioned by namespace and no application can claim another's. `DexConnector` objects are admitted only in
+`dex`: connectors stay platform-owned, set through `DEX_CONNECTORS`. It's enforced from the start rather than following
+`KYVERNO_FAILURE_ACTION`, since a soak would leave the takeover open. It rides a ResourceSet that waits for both CRDs,
+because kyverno rejects a policy for a kind it can't resolve.
 
 ## Credentials
 
@@ -160,10 +162,10 @@ keeps them in the application's namespace.
     --8<-- "components/dex/common/resourceset-client-controller.yaml"
     ```
 
-??? example "components/dex/common/policy-client-controller.yaml"
+??? example "components/dex/common/resourceset-client-controller-policy.yaml"
 
     ```yaml
-    --8<-- "components/dex/common/policy-client-controller.yaml"
+    --8<-- "components/dex/common/resourceset-client-controller-policy.yaml"
     ```
 
 ??? example "components/dex/common/resourceset-policy.yaml"

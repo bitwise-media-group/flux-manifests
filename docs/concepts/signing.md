@@ -5,12 +5,12 @@ admitted. Nothing on the path from registry to running pod is trusted by locatio
 
 ## What's verified, by whom
 
-| artifact                              | signed by                         | verified by                                             | identity variable           |
-| ------------------------------------- | --------------------------------- | ------------------------------------------------------- | --------------------------- |
-| `manifests/platform` (the entrypoint) | this repo's release workflow      | source-controller, via the FluxInstance verify patch    | `SIGNED_IDENTITY_MANIFESTS` |
-| `manifests/<component>`               | this repo's release workflow      | source-controller, each `platform-<name>` OCIRepository | `SIGNED_IDENTITY_MANIFESTS` |
-| `charts/<chart>`                      | flux-containers' publish workflow | source-controller, each chart OCIRepository             | `SIGNED_IDENTITY_CHARTS`    |
-| `images/<path>` (every pod image)     | flux-containers' publish workflow | Kyverno, `verify-platform-signature` ClusterPolicy      | `SIGNED_IDENTITY_IMAGES`    |
+| artifact                              | signed by                         | verified by                                                | identity variable           |
+| ------------------------------------- | --------------------------------- | ---------------------------------------------------------- | --------------------------- |
+| `manifests/platform` (the entrypoint) | this repo's release workflow      | source-controller, via the FluxInstance verify patch       | `SIGNED_IDENTITY_MANIFESTS` |
+| `manifests/<component>`               | this repo's release workflow      | source-controller, each `platform-<name>` OCIRepository    | `SIGNED_IDENTITY_MANIFESTS` |
+| `charts/<chart>`                      | flux-containers' publish workflow | source-controller, each chart OCIRepository                | `SIGNED_IDENTITY_CHARTS`    |
+| `images/<path>` (every pod image)     | flux-containers' publish workflow | Kyverno, `verify-platform-signature` ImageValidatingPolicy | `SIGNED_IDENTITY_IMAGES`    |
 
 The issuer for all keyless identities is `SIGNED_IDENTITY_ISSUER`, GitHub Actions' OIDC issuer.
 
@@ -67,25 +67,27 @@ the org can produce that identity. The same identity covers the entrypoint and e
 
 ## The admission policy
 
-The [kyverno-policies](../components/kyverno-policies.md) component installs one ClusterPolicy,
-`verify-platform-signature`. Every Pod's images must carry a cosign signature from the platform pipeline:
+The [kyverno-policies](../components/kyverno-policies.md) component installs one ImageValidatingPolicy,
+`verify-platform-signature` (Kyverno's CEL image-verification kind). Every Pod's images must carry a cosign signature
+from the platform pipeline:
 
 - **One identity, no carve-outs.** The policy knows only the platform's signer. An application whose images are signed
-  elsewhere ships a `PolicyException` in the `kyverno` namespace, scoped to its own namespaces, beside its own
-  ClusterPolicy verifying its signer. Every image is still verified by exactly one policy, and the platform never learns
-  the application's registry. See [Applications](../applications.md). The platform's one first-party ghcr image,
+  elsewhere ships a `policies.kyverno.io` `PolicyException` in the `kyverno` namespace exempting its own pods, beside
+  its own ImageValidatingPolicy verifying its signer and closing over every image in those pods. Every image is still
+  verified by exactly one policy, and the platform never learns the application's registry. See
+  [Applications](../applications.md). The platform's one first-party ghcr image,
   [dex-client-controller](../components/dex.md#dex-client-controller), uses the same pattern from inside the dex
   component, scoped to the controller's own pods.
 - **Cloud system images are skipped by registry**: `registry.k8s.io/*` everywhere, the EKS add-on registries on aws,
   `gke.gcr.io/*` and `gcr.io/gke-release/*` on google. Registries are the stable contract; new managed namespaces appear
   with cluster features. `kube-system` is also excluded at the webhook level by the kyverno chart.
 - **Sigstore bundles.** The platform signs with cosign v3, which stores signatures as sigstore bundles through the OCI
-  referrers API, so the policy uses `type: SigstoreBundle`. The transparency-log entry travels in the bundle and is
-  checked offline against the sigstore trusted root. Flux verifies the same bundles independently (source-controller
-  v1.8 / Flux 2.8 and later).
-- **Audit first.** `failureAction` comes from `KYVERNO_FAILURE_ACTION`, defaulting to `Audit`. Soak a fresh cluster,
-  review the PolicyReports, then set it to `Enforce`. See
+  referrers API. Kyverno's image verifier detects and verifies them; the transparency-log entry travels in the bundle
+  and is checked offline against the sigstore trusted root. Flux verifies the same bundles independently
+  (source-controller v1.8 / Flux 2.8 and later).
+- **Audit first.** The policy's action comes from `KYVERNO_FAILURE_ACTION`, defaulting to `Audit` (`Enforce` renders
+  `Deny`). Soak a fresh cluster, review the PolicyReports, then set it to `Enforce`. See
   [Operations](../reference/operations.md#enforcing-the-signature-policy).
-- **No digest mutation.** Kyverno rejects `mutateDigest` under `Audit`, and the policy must be valid in both modes, so
-  digest rewriting and `verifyDigest` are off. What's verified is the signature on whatever the tag resolves to at
-  admission.
+- **No digest mutation.** The policy kind rewrites tags to digests by default, which would change pods it's only meant
+  to report on under `Audit`, so digest rewriting and `verifyDigest` are off. What's verified is the signature on
+  whatever the tag resolves to at admission.

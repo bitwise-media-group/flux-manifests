@@ -72,6 +72,7 @@ nav = [
     { "Tasks" = "reference/tasks.md" },
     { "Operations" = "reference/operations.md" },
     { "Migrating from 3.x" = "reference/migrating-3x.md" },
+    { "Migrating to CEL policies" = "reference/migrating-cel-policies.md" },
     { "Working on the docs" = "reference/docs.md" },
   ] },
 ]

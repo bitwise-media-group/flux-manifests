@@ -135,11 +135,17 @@ through the cluster module (`DEX_CONNECTORS`).
 The platform's [signature policy](components/kyverno-policies.md) verifies every pod image against the platform
 pipeline's identity, with no carve-outs. An application whose images are signed elsewhere ships, in its own image:
 
-- a `PolicyException` in the `kyverno` namespace, scoped to its own namespaces and images, excusing them from
-  `verify-platform-signature`, and
-- its own `ClusterPolicy` verifying its signer.
+- a `policies.kyverno.io/v1` `PolicyException` in the `kyverno` namespace whose `policyRefs` name the
+  `ImageValidatingPolicy` `verify-platform-signature`, with `matchConditions` on `request.namespace` scoping it to its
+  own pods, and
+- its own `ImageValidatingPolicy` verifying its signer, matching those same pods.
 
-Every image is still verified by exactly one policy, and the platform never learns the application's registry or signer.
+Image policies honour only whole-resource exceptions (an exception that lists `images` is ignored), so the exemption
+covers whole pods. The application's own policy must therefore close over every image in them: match `*` and verify
+platform-mirrored images against the platform identity as well, or reject anything not from its own signer. Every image
+is still verified by exactly one policy, and the platform never learns the application's registry or signer. Before the
+CEL migration this was a `kyverno.io` exception plus a ClusterPolicy; see
+[Migrating to CEL policies](reference/migrating-cel-policies.md).
 
 ## RBAC
 
