@@ -22,8 +22,11 @@ ships two objects, and both change kind:
 
 - **The exception.** Replace the `kyverno.io/v2` `PolicyException` with a `policies.kyverno.io/v1` one in `kyverno`:
   `policyRefs: [{kind: ImageValidatingPolicy, name: verify-platform-signature}]`, scoped by `matchConditions` (for
-  example `request.namespace in ['my-app']`). The old exception names a `ClusterPolicy` that no longer exists, so it
-  stops exempting anything.
+  example `request.namespace in ['my-app']`). The scope must match the pods' Deployments and ReplicaSets as well as the
+  pods, because Kyverno checks those too. A namespace condition does; a pod-name one usually doesn't. The old exception
+  names a `ClusterPolicy` that no longer exists, so it stops exempting anything. It also exempted only `Pod`s from the
+  `verify-platform-signature` rule, not the generated `autogen-verify-platform-signature` rule, so the controllers were
+  reported as failing even before the migration.
 - **Its own policy.** Replace the `ClusterPolicy` with an `ImageValidatingPolicy`. Image policies honour only
   whole-resource exceptions, so the exemption covers whole pods, and the application's policy must close over every
   image in them: match `*` (`images` holds only matched images), verify its own images against its signer, and either

@@ -142,10 +142,12 @@ pipeline's identity, with no carve-outs. An application whose images are signed 
 
 Image policies honour only whole-resource exceptions (an exception that lists `images` is ignored), so the exemption
 covers whole pods. The application's own policy must therefore close over every image in them: match `*` and verify
-platform-mirrored images against the platform identity as well, or reject anything not from its own signer. Every image
-is still verified by exactly one policy, and the platform never learns the application's registry or signer. Before the
-CEL migration this was a `kyverno.io` exception plus a ClusterPolicy; see
-[Migrating to CEL policies](reference/migrating-cel-policies.md).
+platform-mirrored images against the platform identity as well, or reject anything not from its own signer. Kyverno also
+checks the Deployments and ReplicaSets that own the pods, so the exception's `matchConditions` must match those too.
+Scoping by namespace does this for free; scoping by pod name has to cover the controllers' names as well (dex's
+`generateName` check is the example). Every image is still verified by exactly one policy, and the platform never learns
+the application's registry or signer. Before the CEL migration this was a `kyverno.io` exception plus a ClusterPolicy;
+see [Migrating to CEL policies](reference/migrating-cel-policies.md).
 
 ## RBAC
 
