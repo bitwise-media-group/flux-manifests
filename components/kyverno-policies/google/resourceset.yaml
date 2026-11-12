@@ -60,7 +60,7 @@ spec:
     # apply, and the template's missingkey=error fails the build.
     << $keyed := ne "${SIGNED_IDENTITY_KMS_KEY:=}" "" >>
     << $enforce := eq "${KYVERNO_FAILURE_ACTION:=Audit}" "Enforce" >>
-    << $system := `ref.startsWith('registry.k8s.io/') || ref.startsWith('gke.gcr.io/') || ref.startsWith('gcr.io/gke-release/')` >>
+    << $system := `ref.startsWith('registry.k8s.io/') || ref.startsWith('gke.gcr.io/') || ref.startsWith('gcr.io/gke-release/') || ref.matches('^[a-z0-9-]+-artifactregistry[.]gcr[.]io/gke-release/')` >>
     ---
     apiVersion: policies.kyverno.io/v1
     kind: ImageValidatingPolicy
@@ -79,7 +79,9 @@ spec:
             operations: ["CREATE", "UPDATE"]
             resources: ["pods"]
       # Every image but the cloud's own system images (registry.k8s.io;
-      # GKE's managed images in gke.gcr.io and gcr.io/gke-release).
+      # GKE's managed images in gke.gcr.io and gcr.io/gke-release, and the
+      # regional Artifact Registry mirrors GKE pulls them from on newer
+      # clusters, <region>-artifactregistry.gcr.io/gke-release/).
       matchImageReferences:
         - expression: >-
             !(<< $system >>)

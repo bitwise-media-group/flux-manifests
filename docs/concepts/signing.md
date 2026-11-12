@@ -79,8 +79,9 @@ from the platform pipeline:
   [dex-client-controller](../components/dex.md#dex-client-controller), uses the same pattern from inside the dex
   component, scoped to the controller's own pods.
 - **Cloud system images are skipped by registry**: `registry.k8s.io/*` everywhere, the EKS add-on registries on aws,
-  `gke.gcr.io/*` and `gcr.io/gke-release/*` on google. Registries are the stable contract; new managed namespaces appear
-  with cluster features. `kube-system` is also excluded at the webhook level by the kyverno chart.
+  `gke.gcr.io/*`, `gcr.io/gke-release/*` and its regional mirrors (`<region>-artifactregistry.gcr.io/gke-release/*`) on
+  google. Registries are the stable contract; new managed namespaces appear with cluster features. `kube-system` is also
+  excluded at the webhook level by the kyverno chart.
 - **Sigstore bundles.** The platform signs with cosign v3, which stores signatures as sigstore bundles through the OCI
   referrers API. Kyverno's image verifier detects and verifies them; the transparency-log entry travels in the bundle
   and is checked offline against the sigstore trusted root. Flux verifies the same bundles independently

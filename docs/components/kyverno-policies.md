@@ -33,10 +33,10 @@ attestor's shape and the action follow cluster variables:
 The two clouds' files differ in that scheme, the registry credential provider (`amazon` or `google`), and the system
 registries they skip:
 
-| cloud  | skipped image references                                                      |
-| ------ | ----------------------------------------------------------------------------- |
-| aws    | `registry.k8s.io/`, `602401143452.dkr.ecr.`, `*.dkr.ecr.*.amazonaws.com/eks/` |
-| google | `gke.gcr.io/`, `gcr.io/gke-release/`, `registry.k8s.io/`                      |
+| cloud  | skipped image references                                                                                  |
+| ------ | --------------------------------------------------------------------------------------------------------- |
+| aws    | `registry.k8s.io/`, `602401143452.dkr.ecr.`, `*.dkr.ecr.*.amazonaws.com/eks/`                             |
+| google | `gke.gcr.io/`, `gcr.io/gke-release/`, `<region>-artifactregistry.gcr.io/gke-release/`, `registry.k8s.io/` |
 
 ## Design decisions
 
