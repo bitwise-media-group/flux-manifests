@@ -220,6 +220,25 @@ spec:
                   target:
                     kind: OCIRepository
                     name: flux-system
+                # The entrypoint reads cluster vars itself (ResourceSet/platform
+                # emits each component's source from PLATFORM_REGISTRY and
+                # elects from PLATFORM_COMPONENTS), so the generated sync
+                # Kustomization must substitute cluster-vars, exactly as the
+                # cluster module's bootstrap does. Without it, the first time
+                # this component re-applies the FluxInstance the entrypoint is
+                # re-applied literal: every platform-<name> source fails URL
+                # validation and the whole electable tier (dex, flux-web, arc)
+                # drops out of the election.
+                - patch: |
+                    - op: add
+                      path: /spec/postBuild
+                      value:
+                        substituteFrom:
+                          - kind: ConfigMap
+                            name: cluster-vars
+                  target:
+                    kind: Kustomization
+                    name: flux-system
                 # helm-controller appends the OCI artifact digest to the chart
                 # version as semver build metadata (0.56.0+<digest12>) for
                 # every chartRef OCIRepository, so a moved tag still triggers
