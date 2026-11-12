@@ -114,3 +114,12 @@ spec:
             policyExceptions:
               enabled: true
               namespace: kyverno
+          # The chart's own dashboard, as a grafana_dashboard ConfigMap in
+          # this namespace: picked up by kube-prometheus-stack's Grafana
+          # where that is elected, inert elsewhere. Its metrics are scraped
+          # by kube-prometheus-stack's platform-monitors (kyverno installs
+          # first, so the chart's own ServiceMonitor would find no CRD).
+          grafana:
+            enabled: true
+            annotations:
+              grafana_folder: Kyverno

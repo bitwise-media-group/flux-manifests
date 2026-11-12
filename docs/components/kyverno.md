@@ -38,6 +38,10 @@ first component on every cluster, and almost everything else waits for it.
   exceptions to one namespace makes an exception a platform-reviewed policy decision rather than something any workload
   namespace can grant itself. See [Applications](../applications.md#its-own-image-signer).
 
+- **Its dashboard ships with it.** `grafana.enabled` renders the chart's dashboard as a `grafana_dashboard` ConfigMap,
+  filed under the Kyverno folder. It's inert unless [kube-prometheus-stack](kube-prometheus-stack.md#dashboards) is
+  elected, which also scrapes the controllers' metrics Services.
+
 ## Identity
 
 Registry credentials for signature fetches come from terraform-created identity grants on the
