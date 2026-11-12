@@ -1,0 +1,90 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+
+# Scrape configuration for the aws-only platform components, for the same
+# reason and with the same CRD gate as common/resourceset-monitors.yaml.
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSet
+metadata:
+  name: platform-monitors-aws
+  namespace: monitoring
+spec:
+  dependsOn:
+    - apiVersion: apiextensions.k8s.io/v1
+      kind: CustomResourceDefinition
+      name: podmonitors.monitoring.coreos.com
+    - apiVersion: apiextensions.k8s.io/v1
+      kind: CustomResourceDefinition
+      name: servicemonitors.monitoring.coreos.com
+  resources:
+    # The cilium agent and operator serve metrics on their pods' prometheus
+    # port (the agent's is a hostPort; the cilium component enables it). The
+    # chart's dashboards filter on k8s_app="cilium" and
+    # io_cilium_app="operator", which podTargetLabels copy from the pod
+    # labels.
+    - apiVersion: monitoring.coreos.com/v1
+      kind: PodMonitor
+      metadata:
+        name: cilium-agent
+        namespace: monitoring
+      spec:
+        namespaceSelector:
+          matchNames:
+            - kube-system
+        selector:
+          matchLabels:
+            k8s-app: cilium
+        podTargetLabels:
+          - k8s-app
+        podMetricsEndpoints:
+          # The Hubble namespace dashboards take their cluster variable from
+          # cilium_version's cluster label, and the Hubble metrics carry the
+          # same one, so both endpoints add it.
+          - port: prometheus
+            relabelings:
+              - sourceLabels:
+                  - __meta_kubernetes_pod_node_name
+                targetLabel: node
+              - targetLabel: cluster
+                replacement: ${CLUSTER_NAME}
+          # Hubble's flow metrics (the cilium component enables them).
+          - port: hubble-metrics
+            relabelings:
+              - sourceLabels:
+                  - __meta_kubernetes_pod_node_name
+                targetLabel: node
+              - targetLabel: cluster
+                replacement: ${CLUSTER_NAME}
+    - apiVersion: monitoring.coreos.com/v1
+      kind: PodMonitor
+      metadata:
+        name: cilium-operator
+        namespace: monitoring
+      spec:
+        namespaceSelector:
+          matchNames:
+            - kube-system
+        selector:
+          matchLabels:
+            io.cilium/app: operator
+        podTargetLabels:
+          - io.cilium/app
+        podMetricsEndpoints:
+          - port: prometheus
+    # Karpenter's Service (named karpenter, so job="karpenter", which the
+    # performance dashboard filters on) in whichever namespace the cluster
+    # module installed it.
+    - apiVersion: monitoring.coreos.com/v1
+      kind: ServiceMonitor
+      metadata:
+        name: karpenter
+        namespace: monitoring
+      spec:
+        namespaceSelector:
+          matchNames:
+            - ${KARPENTER_NAMESPACE}
+        selector:
+          matchLabels:
+            app.kubernetes.io/name: karpenter
+        endpoints:
+          - port: http-metrics

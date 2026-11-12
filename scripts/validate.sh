@@ -47,7 +47,7 @@ command -v yq >/dev/null || { echo "yq not found" >&2; exit 1; }
 # The electable tier: the only components the platform ResourceSet gates on
 # PLATFORM_COMPONENTS. Everything else under components/ is core and must
 # be emitted whatever the election says (the election-independence guard).
-ELECTABLE="dex flux-web arc"
+ELECTABLE="dex flux-web arc kube-prometheus-stack"
 
 # --- the per-cloud env contracts -------------------------------------------
 # Each cloud's variable NAME set (base + keyed overlay) doubles as the

@@ -96,6 +96,11 @@ If the component ships custom resources kubeconform has no schema for, vendor th
 refresh command is at the bottom of `scripts/validate.sh`). If an overlay contains only custom resources, add it to the
 skip list in the `lint-kustomize` task in `tasks.toml`, because kubescape fails on directories it can't map.
 
+If upstream publishes a Grafana dashboard, turn on the chart's own dashboard ConfigMap where it has one, or add the JSON
+to `scripts/vendor-dashboards.sh`. Add the scrape to kube-prometheus-stack's monitors ResourceSet rather than the
+chart's `serviceMonitor`, since the CRDs arrive after most components. See
+[kube-prometheus-stack](../components/kube-prometheus-stack.md#dashboards).
+
 ## 6. Cluster variables
 
 A new variable has to be published by the cluster module (`terraform-aws-eks-flux` / `terraform-google-gke-flux`) before

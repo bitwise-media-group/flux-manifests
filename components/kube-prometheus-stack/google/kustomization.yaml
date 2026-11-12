@@ -1,0 +1,13 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+
+# The google overlay of the kube-prometheus-stack component: the cloud-neutral
+# common tier plus what differs on GKE: which DNS add-on the cluster runs
+# (values-cloud.yaml, read by the HelmRelease's valuesFrom) and the GKE
+# Gateway health check for Grafana's route (health-check.yaml).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../common
+  - values-cloud.yaml
+  - health-check.yaml

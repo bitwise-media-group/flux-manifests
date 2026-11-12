@@ -63,6 +63,7 @@ nav = [
     { "dex" = "components/dex.md" },
     { "flux-web" = "components/flux-web.md" },
     { "arc" = "components/arc.md" },
+    { "kube-prometheus-stack" = "components/kube-prometheus-stack.md" },
   ] },
   { "Applications" = "applications.md" },
   { "Reference" = [

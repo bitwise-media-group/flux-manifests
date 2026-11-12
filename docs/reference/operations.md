@@ -81,6 +81,14 @@ Un-electing `flux-web` keeps `flux-system`. The component adopts that namespace 
 `kustomize.toolkit.fluxcd.io/prune: disabled` so removing the component can never garbage-collect the namespace Flux
 runs in. Don't remove that label.
 
+## Refreshing the vendored dashboards
+
+The Flux and Karpenter dashboards in kube-prometheus-stack are vendored, pinned to the flux-operator and Karpenter
+versions the platform runs. When either component's mirrored chart moves, bump the version at the top of
+`scripts/vendor-dashboards.sh`, run it, and review the JSON diff. Run `make test` afterwards: the script rewrites
+`${var}` to `$var` so post-build substitution leaves the dashboards alone, and the harness fails if a braced reference
+slips through. Chart-shipped dashboards (kyverno, cilium) follow their charts and need nothing.
+
 ## Caveats
 
 - **Gateway `NamedAddress` (google).** Verify the accepted `spec.addresses.type` on the cluster's GKE version at first

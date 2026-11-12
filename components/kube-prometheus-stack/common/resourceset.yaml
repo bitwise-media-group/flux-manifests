@@ -1,0 +1,294 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+
+# kube-prometheus-stack: the Prometheus Operator and its CRDs, one
+# Prometheus, one Alertmanager, Grafana, kube-state-metrics and
+# node-exporter, with the upstream recording rules, alerts and dashboards
+# for the cluster itself. Electable: monitoring is a choice per cluster,
+# not a precondition of the platform.
+#
+# Applications are first-class tenants: Prometheus selects every
+# ServiceMonitor, PodMonitor, Probe, ScrapeConfig and PrometheusRule in
+# every namespace, not only those carrying this release's label, so an
+# application ships its own monitors beside its workloads and the platform
+# never learns its name.
+#
+# The managed control planes (EKS, GKE) expose no controller-manager,
+# scheduler or etcd endpoints, and neither cloud's dataplane runs a
+# scrapeable kube-proxy (cilium replaces it on aws, Dataplane V2 on google),
+# so those scrapes and the alerts built on them are off. Which DNS add-on to
+# scrape differs per cloud and arrives through valuesFrom
+# (kube-prometheus-stack-cloud, shipped by each overlay).
+#
+# Grafana is published at grafana.<domain> only while dex is elected, and
+# then only behind dex SSO: a DexClient (client monitoring-grafana) has
+# dex-client-controller write the grafana-dex-client Secret Grafana reads its
+# OAuth credentials from, and Grafana roles follow the platform's RBAC
+# groups (dex resolves the same group names the rbac component binds).
+# Without dex there is no route and Grafana stays internal - never exposed
+# on its local login alone. The entrypoint adds the gateway and dex
+# dependencies under the same election.
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSet
+metadata:
+  name: kube-prometheus-stack
+  namespace: monitoring
+spec:
+  inputsFrom:
+    - kind: ResourceSetInputProvider
+      name: kube-prometheus-stack
+  # Everything rides resourcesTemplate: the verify block's SHAPE follows the
+  # signing mode (keyed clusters verify against the cosign-pub Secret
+  # rendered here from COSIGN_PUBLIC_KEY, keyless against the Fulcio
+  # identities), and Prometheus storage is present only when the cluster
+  # asks for it. Conditional membership of a map needs a text template.
+  resourcesTemplate: |
+    << $keyed := ne "${SIGNED_IDENTITY_KMS_KEY:=}" "" >>
+    << $sso := has "dex" (splitList "," "${PLATFORM_COMPONENTS:=dex,flux-web}") >>
+    << if ne "${COSIGN_PUBLIC_KEY:=}" "" >>
+    ---
+    # The signing key's public half (published base64-encoded by terraform,
+    # so it drops straight into data); source-controller verifies the chart
+    # artifact against it in keyed mode.
+    apiVersion: v1
+    kind: Secret
+    metadata:
+      name: cosign-pub
+      namespace: monitoring
+    type: Opaque
+    data:
+      cosign.pub: ${COSIGN_PUBLIC_KEY:=}
+    << end >>
+    ---
+    apiVersion: source.toolkit.fluxcd.io/v1
+    kind: OCIRepository
+    metadata:
+      name: kube-prometheus-stack
+      namespace: monitoring
+    spec:
+      interval: 1h
+      url: oci://${PLATFORM_REGISTRY}/charts/kube-prometheus-stack
+      # Registry auth (gcp = Artifact Registry via Workload Identity).
+      provider: "${OCI_PROVIDER:=gcp}"
+      ref:
+        tag: << inputs.tag >>
+      verify:
+        provider: cosign
+        << if $keyed >>
+        # Keyed: verified against the KMS signing key's public half.
+        secretRef:
+          name: cosign-pub
+        << else >>
+        # Keyless: the chart must carry a Fulcio certificate from the
+        # flux-containers publish workflow. Single-quoted: the values are
+        # regexes whose backslashes a double-quoted scalar would mangle.
+        matchOIDCIdentity:
+          - issuer: '${SIGNED_IDENTITY_ISSUER}'
+            subject: '${SIGNED_IDENTITY_CHARTS}'
+        << end >>
+    ---
+    apiVersion: helm.toolkit.fluxcd.io/v2
+    kind: HelmRelease
+    metadata:
+      name: kube-prometheus-stack
+      namespace: monitoring
+    spec:
+      interval: 30m
+      timeout: 10m
+      chartRef:
+        kind: OCIRepository
+        name: kube-prometheus-stack
+        namespace: monitoring
+      # The prometheus-operator CRDs ship in the chart's crds subchart; they
+      # track the chart rather than helm's default of never upgrading them,
+      # so a chart bump never leaves the operator ahead of its CRDs.
+      install:
+        crds: CreateReplace
+      upgrade:
+        crds: CreateReplace
+      # Per-cloud values from the overlay (the DNS add-on to scrape).
+      valuesFrom:
+        - kind: ConfigMap
+          name: kube-prometheus-stack-cloud
+          valuesKey: values.yaml
+      values:
+        # The managed control plane exposes none of these, and no cloud's
+        # dataplane runs a scrapeable kube-proxy; their alerts go with them.
+        kubeControllerManager:
+          enabled: false
+        kubeScheduler:
+          enabled: false
+        kubeEtcd:
+          enabled: false
+        kubeProxy:
+          enabled: false
+        prometheusOperator:
+          image:
+            registry: ${CONTAINER_REGISTRY}/images/quay.io
+          # The operator injects this into every Prometheus and Alertmanager
+          # pod; the mirror carries it as an extra image.
+          prometheusConfigReloader:
+            image:
+              registry: ${CONTAINER_REGISTRY}/images/quay.io
+          # The admission webhook certificate comes from cert-manager (a
+          # self-signed issuer the chart creates in this namespace) instead
+          # of the kube-webhook-certgen hook jobs, whose image the mirror
+          # does not carry.
+          admissionWebhooks:
+            certManager:
+              enabled: true
+          nodeSelector:
+            role: system
+        prometheus:
+          prometheusSpec:
+            image:
+              registry: ${CONTAINER_REGISTRY}/images/quay.io
+            # Select every monitor and rule in every namespace, not only
+            # this release's: applications ship their own.
+            serviceMonitorSelectorNilUsesHelmValues: false
+            podMonitorSelectorNilUsesHelmValues: false
+            probeSelectorNilUsesHelmValues: false
+            scrapeConfigSelectorNilUsesHelmValues: false
+            ruleSelectorNilUsesHelmValues: false
+            retention: 10d
+            nodeSelector:
+              role: system
+            << if ne "${KUBE_PROMETHEUS_STACK_STORAGE_SIZE:=}" "" >>
+            # A PersistentVolumeClaim from the cluster's default
+            # StorageClass. Unset, Prometheus keeps its TSDB in an emptyDir
+            # and loses it whenever the pod moves: a default StorageClass is
+            # not guaranteed (the EBS CSI driver is an optional add-on on
+            # aws).
+            storageSpec:
+              volumeClaimTemplate:
+                spec:
+                  accessModes:
+                    - ReadWriteOnce
+                  resources:
+                    requests:
+                      storage: ${KUBE_PROMETHEUS_STACK_STORAGE_SIZE:=}
+            << end >>
+        alertmanager:
+          alertmanagerSpec:
+            image:
+              registry: ${CONTAINER_REGISTRY}/images/quay.io
+            nodeSelector:
+              role: system
+        grafana:
+          image:
+            registry: ${CONTAINER_REGISTRY}/images/docker.io
+          # The dashboard and datasource loader. It already watches every
+          # namespace for grafana_dashboard ConfigMaps (the chart's
+          # default); the platform's dashboards (kyverno and cilium from
+          # their own charts, Flux and karpenter vendored here) carry a
+          # grafana_folder annotation that files each under its
+          # component's folder. The chart's own dashboards carry none and
+          # stay at the top level.
+          sidecar:
+            image:
+              registry: ${CONTAINER_REGISTRY}/images/quay.io
+            dashboards:
+              folderAnnotation: grafana_folder
+              provider:
+                foldersFromFilesStructure: true
+          # The helm test hook never runs under Flux, and the mirror does
+          # not carry its image.
+          testFramework:
+            enabled: false
+          # The chart generates the local admin password once into the
+          # kube-prometheus-stack-grafana Secret and keeps it across
+          # upgrades: the break-glass login (port-forward, or
+          # /login?disableAutoLogin=true at the edge).
+          nodeSelector:
+            role: system
+          << if $sso >>
+          # The client credentials dex-client-controller writes for the
+          # DexClient below. GF_* environment overrides grafana.ini, so the
+          # secret never lands in the rendered config.
+          envValueFrom:
+            GF_AUTH_GENERIC_OAUTH_CLIENT_ID:
+              secretKeyRef:
+                name: grafana-dex-client
+                key: clientID
+            GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET:
+              secretKeyRef:
+                name: grafana-dex-client
+                key: clientSecret
+          grafana.ini:
+            server:
+              root_url: https://grafana.${PLATFORM_DOMAIN}
+            auth:
+              # Straight to dex: SSO is the front door.
+              oauth_auto_login: true
+            auth.generic_oauth:
+              enabled: true
+              name: SSO
+              allow_sign_up: true
+              use_pkce: true
+              scopes: openid profile email groups offline_access
+              auth_url: https://dex.${PLATFORM_DOMAIN}/auth
+              token_url: https://dex.${PLATFORM_DOMAIN}/token
+              api_url: https://dex.${PLATFORM_DOMAIN}/userinfo
+              email_attribute_path: email
+              login_attribute_path: email
+              groups_attribute_path: groups
+              # The platform's groups, as the rbac component binds them:
+              # admins administer Grafana itself, devops edit, developers
+              # and viewers view. role_attribute_strict refuses everyone
+              # else rather than defaulting them to Viewer. An unpublished
+              # (empty) group never matches.
+              role_attribute_path: "contains(groups[*], '${RBAC_GROUP_ADMINS}') && 'GrafanaAdmin' || contains(groups[*], '${RBAC_GROUP_DEVOPS}') && 'Editor' || contains(groups[*], '${RBAC_GROUP_DEVELOPERS}') && 'Viewer' || contains(groups[*], '${RBAC_GROUP_VIEWERS}') && 'Viewer'"
+              role_attribute_strict: true
+              allow_assign_grafana_admin: true
+          << end >>
+        kube-state-metrics:
+          image:
+            registry: ${CONTAINER_REGISTRY}/images/registry.k8s.io
+          nodeSelector:
+            role: system
+        # node-exporter is a DaemonSet that must reach every node, so it
+        # carries no nodeSelector (the subchart tolerates every NoSchedule
+        # taint by default).
+        prometheus-node-exporter:
+          image:
+            registry: ${CONTAINER_REGISTRY}/images/quay.io
+    << if $sso >>
+    ---
+    # Grafana's identity, through the same contract an application uses:
+    # client ID monitoring-grafana (namespace-prefixed, as
+    # restrict-dex-resources demands), credentials in the
+    # grafana-dex-client Secret beside it.
+    apiVersion: dex.bitwisemedia.uk/v1alpha1
+    kind: DexClient
+    metadata:
+      name: grafana
+      namespace: monitoring
+    spec:
+      name: Grafana
+      redirectURIs:
+        - https://grafana.${PLATFORM_DOMAIN}/login/generic_oauth
+    ---
+    # grafana.<domain> through the platform Gateway's wildcard listener,
+    # attached by hostname (the monitoring namespace carries the
+    # gateway-access label); the wildcard certificate covers it and
+    # external-dns publishes the record.
+    apiVersion: gateway.networking.k8s.io/v1
+    kind: HTTPRoute
+    metadata:
+      name: grafana
+      namespace: monitoring
+    spec:
+      parentRefs:
+        - name: platform
+          namespace: gateway
+      hostnames:
+        - grafana.${PLATFORM_DOMAIN}
+      rules:
+        - matches:
+            - path:
+                type: PathPrefix
+                value: /
+          backendRefs:
+            - name: kube-prometheus-stack-grafana
+              port: 80
+    << end >>

@@ -1,0 +1,13 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+
+# gateway-access lets the platform Gateway's listener admit Grafana's
+# HTTPRoute. The label is unconditional (a plain manifest cannot follow the
+# election), but the route itself renders only while dex is elected, and
+# nothing else in this namespace ships one.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: monitoring
+  labels:
+    platform.bitwisemedia.uk/gateway-access: "true"

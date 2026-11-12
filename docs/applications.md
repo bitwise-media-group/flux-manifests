@@ -265,3 +265,14 @@ needs:
   The mirror carries it as `${CONTAINER_REGISTRY}/images/docker.io/library/docker:dind`; point the sidecar there, for
   example with a HelmRelease `postRenderers` patch on the `AutoscalingRunnerSet`, or spell out the dind pod template
   with `containerMode` unset.
+
+## Monitoring
+
+With [kube-prometheus-stack](components/kube-prometheus-stack.md) elected, ship `ServiceMonitor`, `PodMonitor` or
+`PrometheusRule` objects in the application's own namespaces. Prometheus selects them in every namespace with no release
+label, so the platform needs no change to scrape a new application.
+
+- Depend on `kube-prometheus-stack`, since the `monitoring.coreos.com` CRDs arrive with it. A cluster that hasn't
+  elected it has no such CRDs, so gate the monitors behind the application's own election or leave them out there.
+- A `PrometheusRule` is evaluated by the shared Prometheus and routed by the shared Alertmanager, so keep its alerts
+  scoped to the application's own series.

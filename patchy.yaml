@@ -90,6 +90,11 @@ build:
       path: components/karpenter
       source: https://github.com/bitwise-media-group/flux-manifests
       revision: "main@sha1:${GIT_COMMIT}"
+    - name: kube-prometheus-stack
+      repository: manifests/kube-prometheus-stack
+      path: components/kube-prometheus-stack
+      source: https://github.com/bitwise-media-group/flux-manifests
+      revision: "main@sha1:${GIT_COMMIT}"
     - name: kyverno
       repository: manifests/kyverno
       path: components/kyverno

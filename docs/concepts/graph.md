@@ -20,7 +20,8 @@ kyverno ──► kyverno-policies ──┬──► cert-manager ──► cer
                                ├──► secret-sync (aws) ─────────────────────────────────┴──────┘
                                ├──► aws-load-balancer-controller (aws)
                                ├──► karpenter (aws)
-                               └──► arc
+                               ├──► arc
+                               └──► kube-prometheus-stack ◄── cert-manager, gateway + dex (when dex is elected)
 gateway-api-crds (aws, GATEWAY_API_CRDS) ──► cilium (aws)          rbac (no dependencies)
 ```
 
@@ -39,11 +40,12 @@ The **core tier** has no election gate and deploys on every cluster:
 
 The **electable tier** deploys only when named in the `PLATFORM_COMPONENTS` cluster variable:
 
-| component  | elected by                                                                                      |
-| ---------- | ----------------------------------------------------------------------------------------------- |
-| `dex`      | the cluster module, exactly when its `sso` toggle is on. Don't elect it by hand.                |
-| `flux-web` | naming it; it also requires `dex`, since it's nothing but the Flux UI's SSO wiring and its edge |
-| `arc`      | naming it                                                                                       |
+| component               | elected by                                                                                                      |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `dex`                   | the cluster module, exactly when its `sso` toggle is on. Don't elect it by hand.                                |
+| `flux-web`              | naming it; it also requires `dex`, since it's nothing but the Flux UI's SSO wiring and its edge                 |
+| `arc`                   | naming it                                                                                                       |
+| `kube-prometheus-stack` | naming it; with `dex` also elected, Grafana gets its SSO route and the component depends on `gateway` and `dex` |
 
 `PLATFORM_COMPONENTS` is a comma-separated list of short names. Unset, it elects `dex,flux-web`. The reserved name
 `none`, which terraform publishes for an empty election, matches nothing. An entry's `when` list must be fully elected

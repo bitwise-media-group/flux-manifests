@@ -4,4 +4,4 @@
 # Everything elected, so every component's source and Kustomization
 # renders and gets kubeconform-validated (the entrypoint-completeness
 # guard reads this render).
-- components: dex,flux-web,arc
+- components: dex,flux-web,arc,kube-prometheus-stack

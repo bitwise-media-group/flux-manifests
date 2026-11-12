@@ -1,0 +1,30 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+
+# The GKE Gateway's managed load balancer health-checks backend pods with a
+# default GET / on the serving port, and Grafana answers / with a redirect
+# to its login page, so the NEG endpoints would never go healthy (and the
+# NEG readiness gate would hold every Grafana pod NotReady, failing the
+# HelmRelease's rollout). /api/health on the same port is Grafana's
+# unauthenticated health endpoint.
+#
+# HealthCheckPolicy is the GKE Gateway dialect, which is why this lives in
+# the google overlay; the aws NLB health-checks the cilium gateway's nodes
+# instead. It is harmless while Grafana has no route (dex not elected): no
+# NEG exists for it to apply to.
+apiVersion: networking.gke.io/v1
+kind: HealthCheckPolicy
+metadata:
+  name: grafana
+  namespace: monitoring
+spec:
+  default:
+    config:
+      type: HTTP
+      httpHealthCheck:
+        portSpecification: USE_SERVING_PORT
+        requestPath: /api/health
+  targetRef:
+    group: ""
+    kind: Service
+    name: kube-prometheus-stack-grafana

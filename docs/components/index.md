@@ -21,8 +21,11 @@ by the entrypoint as the Kustomization `<name>` in `flux-system`. The graph and 
 | [dex](dex.md)                                                   | electable | both   | kyverno-policies, cert-manager, gateway, secret-sync¹ | `dex`                          | chart `dex` + tracked image, `dex-env` secret sync, chart `dex-client-controller` (ghcr) |
 | [flux-web](flux-web.md)                                         | electable | both   | gateway, secret-sync¹, dex                            | `flux-system`                  | HTTPRoute `flux.`, `flux-web-auth` secret sync, edge policy                              |
 | [arc](arc.md)                                                   | electable | both   | kyverno-policies                                      | `arc-systems`                  | chart `gha-runner-scale-set-controller`                                                  |
+| [kube-prometheus-stack](kube-prometheus-stack.md)               | electable | both   | kyverno-policies, cert-manager, gateway², dex²        | `monitoring`                   | chart `kube-prometheus-stack`, HTTPRoute `grafana.` and its DexClient²                   |
 
 ¹ aws only; the google entrypoint has no secret-sync component.
+
+² only while dex is elected.
 
 ## Common to every chart component
 
@@ -38,7 +41,8 @@ specific to each.
 
 ## Common to every component
 
-- Its Kustomization's timeout comes from the entrypoint (`10m` for kyverno, cert-manager and karpenter, `15m` for
-  cilium, `5m` for the rest), with `wait: true`, `prune: true`, a 30-minute interval and a 2-minute retry.
+- Its Kustomization's timeout comes from the entrypoint (`10m` for kyverno, cert-manager, karpenter and
+  kube-prometheus-stack, `15m` for cilium, `5m` for the rest), with `wait: true`, `prune: true`, a 30-minute interval
+  and a 2-minute retry.
 - `<NAME>_MANIFESTS_REF` pins its manifests image to a tag; empty, it follows the cluster's channel
   (`FLUX_SYNC_SEMVER`).

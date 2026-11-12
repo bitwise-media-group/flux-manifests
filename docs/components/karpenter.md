@@ -54,6 +54,10 @@ substitution.
 - **On the system pool.** `nodeSelector: {role: system}`. The chart's own affinity already keeps the controller off
   nodes Karpenter launched.
 
+Its capacity and performance dashboards come from Karpenter's own getting-started guide. With
+[kube-prometheus-stack](kube-prometheus-stack.md#dashboards) elected, that component vendors them and scrapes the
+controller's `karpenter` Service.
+
 ## The default capacity
 
 `resourceset-nodes.yaml` renders two objects from the cluster variables. It's a ResourceSet for its `dependsOn`:

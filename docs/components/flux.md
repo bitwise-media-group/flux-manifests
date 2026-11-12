@@ -68,6 +68,12 @@ with upstream's `flux-operator-manifests:latest`, an ungated channel that could 
 mirror carries their images. Without it, the operator builds purely from its embedded manifests. The `remove` op fails
 loudly if the chart ever stops rendering the field, which is the signal to delete the patch.
 
+## Monitoring
+
+With [kube-prometheus-stack](kube-prometheus-stack.md#dashboards) elected, Flux is scraped and shown using
+flux-operator's own monitoring kit: a PodMonitor over the controllers' `http-prom` ports, a ServiceMonitor for the
+operator's `flux_*_info` metrics, and its Flux Performance and Flux Kubernetes API dashboards.
+
 ## Identity
 
 terraform grants `flux-system/source-controller` and `flux-system/flux-operator` registry access (Workload Identity on

@@ -1,0 +1,25 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+
+# Lists chart versions from the platform registry; the newest tag in the
+# semver range flows into the ResourceSet, so a flux-containers publish rolls
+# out on the next reconcile. Auth is ambient: the flux-operator service
+# account reads the platform registry via its cloud identity grant
+# (Workload Identity on GKE, Pod Identity on EKS). The mirror stays inside
+# the chart's major (each major is a prometheus-operator CRD change), so the
+# default range does too.
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSetInputProvider
+metadata:
+  name: kube-prometheus-stack
+  namespace: monitoring
+  annotations:
+    fluxcd.controlplane.io/reconcileEvery: 30m
+spec:
+  type: "${ARTIFACT_TAG_PROVIDER:=GARArtifactTag}"
+  url: oci://${PLATFORM_REGISTRY}/charts/kube-prometheus-stack
+  filter:
+    # Constraint order matters: kustomize drops the quotes, so the default
+    # must not start with '>' or YAML reads it as a folded block scalar.
+    semver: "${KUBE_PROMETHEUS_STACK_SEMVER:=<94.0.0 >=93.2.2}"
+    limit: 1

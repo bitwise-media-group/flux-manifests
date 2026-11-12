@@ -1,0 +1,22 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+
+# Cloud-specific chart values, merged beneath the common HelmRelease's own
+# values (valuesFrom first, inline values last). The watch label makes
+# helm-controller reconcile the release when this ConfigMap changes rather
+# than on its next interval.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kube-prometheus-stack-cloud
+  namespace: monitoring
+  labels:
+    reconcile.fluxcd.io/watch: Enabled
+data:
+  values.yaml: |
+    # EKS runs the CoreDNS add-on (k8s-app=kube-dns, metrics on 9153): the
+    # chart's coreDns scrape is the right one.
+    coreDns:
+      enabled: true
+    kubeDns:
+      enabled: false

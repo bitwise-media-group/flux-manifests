@@ -1,0 +1,35 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - namespace.yaml
+  - input-provider.yaml
+  - resourceset.yaml
+  - resourceset-monitors.yaml
+# Dashboards the Grafana sidecar loads (label grafana_dashboard, any
+# namespace) into the folder its grafana_folder annotation names. Vendored by
+# scripts/vendor-dashboards.sh; never edit the JSON by hand.
+#
+# substitute: disabled keeps kustomize-controller's postBuild substitution
+# out of the dashboard JSON (Grafana's own $variables); the vendoring script
+# already strips the braced ${...} form the harness would trip on. No name
+# hash: nothing references these ConfigMaps by name, and a stable name lets
+# prune replace them in place.
+generatorOptions:
+  disableNameSuffixHash: true
+  labels:
+    grafana_dashboard: "1"
+  annotations:
+    kustomize.toolkit.fluxcd.io/substitute: disabled
+configMapGenerator:
+  # flux-operator's own monitoring kit, fed by the flux-controllers
+  # PodMonitor and flux-operator ServiceMonitor (resourceset-monitors.yaml).
+  - name: dashboards-flux
+    namespace: monitoring
+    files:
+      - dashboards/flux-performance.json
+      - dashboards/flux-k8s-api-performance.json
+    options:
+      annotations:
+        grafana_folder: Flux

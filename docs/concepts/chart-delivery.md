@@ -71,8 +71,8 @@ Common value conventions:
   auto-provisioned workload capacity.
 - **Pinned ServiceAccount names**: where terraform grants a cloud identity, the ServiceAccount name is fixed in values
   so the namespace/name contract holds.
-- **CRDs `CreateReplace`** on install and upgrade, for charts that ship CRDs (kyverno, cert-manager, arc, secret-sync),
-  so CRDs track the chart rather than helm's default of never upgrading them.
+- **CRDs `CreateReplace`** on install and upgrade, for charts that ship CRDs (kyverno, cert-manager, arc, secret-sync,
+  kube-prometheus-stack), so CRDs track the chart rather than helm's default of never upgrading them.
 
 ## Tracked images
 
@@ -123,6 +123,7 @@ the chart version follows the mirror like every other component.
 | secret-sync                  | `secrets-store-sync-controller`                        | `SECRET_SYNC_SEMVER`                               |
 | dex                          | `dex` + tracked image                                  | `DEX_SEMVER`, `DEX_IMAGE_SEMVER`                   |
 | arc                          | `gha-runner-scale-set-controller`                      | `ARC_SEMVER`                                       |
+| kube-prometheus-stack        | `kube-prometheus-stack`                                | `KUBE_PROMETHEUS_STACK_SEMVER`                     |
 
 The defaults for each range are on the component pages and in [Cluster variables](../reference/cluster-vars.md).
 

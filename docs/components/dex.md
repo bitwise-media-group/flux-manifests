@@ -100,7 +100,8 @@ registers the client and writes its credentials to a Secret beside it (`<name>-d
   every generated Secret), the CRDs installed and kept on uninstall, DexClient write access aggregated into the built-in
   `edit` and `admin` roles, and the system node pool. The release depends on the dex HelmRelease.
 - **Platform clients stay static.** Static clients are read-only through dex's API, so no `DexClient` can take over
-  `flux-web` or kubectl.
+  `flux-web` or kubectl. Grafana, in [kube-prometheus-stack](kube-prometheus-stack.md), isn't one of them: it registers
+  through a `DexClient` like any application (`monitoring-grafana`).
 
 The `restrict-dex-resources` ClusterPolicy closes what RBAC can't. A `DexClient`'s `spec.clientID` must be omitted (the
 controller then uses `<namespace>-<name>`) or start with `<namespace>-`, so client IDs are partitioned by namespace and

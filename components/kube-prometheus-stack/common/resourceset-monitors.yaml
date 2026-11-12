@@ -1,0 +1,84 @@
+# Copyright 2026 BitWise Media Group Ltd
+# SPDX-License-Identifier: MIT
+
+# Scrape configuration for the platform's own components, so their
+# dashboards have data. It lives here rather than in each component's chart
+# (most charts can render a ServiceMonitor) because those components install
+# before this one: their releases would fail on a fresh cluster for want of
+# the monitoring.coreos.com CRDs, which this component's chart installs. The
+# ResourceSet waits for those CRDs instead, so it never races the
+# HelmRelease beside it.
+#
+# These are the cloud-neutral components; the aws overlay adds cilium and
+# karpenter in a ResourceSet of its own.
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSet
+metadata:
+  name: platform-monitors
+  namespace: monitoring
+spec:
+  dependsOn:
+    - apiVersion: apiextensions.k8s.io/v1
+      kind: CustomResourceDefinition
+      name: podmonitors.monitoring.coreos.com
+    - apiVersion: apiextensions.k8s.io/v1
+      kind: CustomResourceDefinition
+      name: servicemonitors.monitoring.coreos.com
+  resources:
+    # flux-operator's monitoring kit (config/monitoring at the vendored
+    # dashboards' version): the Flux controllers expose http-prom on every
+    # pod, and the operator serves its flux_*_info metrics on its Service.
+    - apiVersion: monitoring.coreos.com/v1
+      kind: PodMonitor
+      metadata:
+        name: flux-controllers
+        namespace: monitoring
+      spec:
+        namespaceSelector:
+          matchNames:
+            - flux-system
+        selector:
+          matchExpressions:
+            - key: app.kubernetes.io/part-of
+              operator: In
+              values:
+                - flux
+        podMetricsEndpoints:
+          - port: http-prom
+    - apiVersion: monitoring.coreos.com/v1
+      kind: ServiceMonitor
+      metadata:
+        name: flux-operator
+        namespace: monitoring
+      spec:
+        namespaceSelector:
+          matchNames:
+            - flux-system
+        selector:
+          matchLabels:
+            app.kubernetes.io/name: flux-operator
+        endpoints:
+          - targetPort: 8080
+            path: /metrics
+    # kyverno's controllers each get a *-metrics Service (chart default);
+    # only those carry the metrics-port port, so the instance label plus the
+    # port name selects exactly them. The chart's dashboard filters every
+    # panel on a cluster label, which a single-cluster Prometheus doesn't
+    # attach, so the scrape adds it.
+    - apiVersion: monitoring.coreos.com/v1
+      kind: ServiceMonitor
+      metadata:
+        name: kyverno
+        namespace: monitoring
+      spec:
+        namespaceSelector:
+          matchNames:
+            - kyverno
+        selector:
+          matchLabels:
+            app.kubernetes.io/instance: kyverno
+        endpoints:
+          - port: metrics-port
+            relabelings:
+              - targetLabel: cluster
+                replacement: ${CLUSTER_NAME}
